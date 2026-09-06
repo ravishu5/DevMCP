@@ -600,6 +600,23 @@ describe("MCP tool surface", () => {
     }
   });
 
+  it("tells the calling agent to decompose the requirement itself", () => {
+    // The tool description IS the mechanism: it is how the server asks the agent to do the
+    // semantic work instead of relying on a keyword table that loses requirements silently.
+    const plan = TOOLS.find((t) => t.name === "build_implementation_plan")!;
+    expect(plan.description).toMatch(/DECOMPOSE THE REQUIREMENT YOURSELF/);
+    expect((plan.inputSchema.properties as Record<string, unknown>).features).toBeDefined();
+  });
+
+  it("lets the agent supply search vocabulary on every discovery tool", () => {
+    for (const name of ["discover_implementations", "get_implementation", "compare_implementations"]) {
+      const t = TOOLS.find((x) => x.name === name)!;
+      const props = t.inputSchema.properties as Record<string, { description?: string }>;
+      expect(props.search_hints, name).toBeDefined();
+      expect(props.capability, name).toBeDefined();
+    }
+  });
+
   it("does not expose internal analyzers as tools", () => {
     const names = TOOLS.map((t) => t.name);
     for (const internal of ["find_tests", "find_dependencies", "check_license", "decompose_application", "rank_candidates"]) {

@@ -109,54 +109,66 @@ export async function runDiscovery(
     distribution: req.distribution ?? "unknown",
   };
 
-  // Decompose even for a single feature: it resolves the capability id, the checklist and
-  // the stack idioms, all of which sharpen the search. A single-feature request is just a
-  // decomposition that happens to yield one unit.
-  const decomposed = decomposeRequirement({
-    requirement: req.feature,
-    stack: target,
-    requirements: req.requirements,
-  });
+  /*
+   * Two paths, and the agent's is preferred.
+   *
+   * When the caller supplied search hints or a capability id, it has already done the
+   * semantic work — so we enrich what it gave us rather than re-deriving the feature from
+   * keywords. Re-deriving actively harmed results: "Voice note recording and playback"
+   * matched `media-playback` on the word "playback" and got enriched with ExoPlayer and
+   * adaptive-streaming vocabulary, returning a video streaming SDK for an audio recorder,
+   * while the caller's own "Android audio recorder opus" sat unused below it.
+   *
+   * Without hints we fall back to the rule-based decomposer, which is what the CLI and
+   * unhinted clients get.
+   */
+  const agentDirected = Boolean(req.searchHints?.length || req.capability);
 
-  const planned = planImplementations({
-    units: decomposed.units,
-    stack: target,
-    totalQueryBudget: config.discovery.maxQueriesPerFeature,
-  });
+  let task: ImplementationTask;
+  let decomposed: ReturnType<typeof decomposeRequirement> | undefined;
 
-  // The task to pursue.
-  //
-  // NOT simply `planned.tasks[0]`. Planned tasks are ordered by BUILD priority, which puts
-  // foundational capabilities first — so a request for "resumable background downloader"
-  // would resolve to `persistence` and return a database library. (It did, before this was
-  // fixed.)
-  //
-  // A discovery request also wants ONE implementation covering the whole phrase, not the
-  // best implementation of one constituent capability. So we build a COMPOSITE task around
-  // the primary capability, carrying every detected capability's checklist and vocabulary.
-  const task = buildCompositeTask({
-    feature: req.feature,
-    primaryId: decomposed.primary,
-    tasks: planned.tasks,
-    explicitIds: decomposed.explicit,
-    callerRequirements: req.requirements ?? [],
-    language: req.language,
-    framework: req.framework,
-    platform: req.platform,
-    queryBudget: config.discovery.maxQueriesPerFeature,
-    // A caller may legitimately pass a capability label ("Local persistence"), and the
-    // planner always does. Detect it here rather than trusting a flag nobody sets.
-    featureIsLabel: isCapabilityLabel(req.feature, decomposed.primary ? CAPABILITY_BY_ID.get(decomposed.primary) : undefined),
-  });
+  if (agentDirected) {
+    const enriched = enrichAgentFeatures({
+      features: [{
+        name: req.feature,
+        requirements: req.requirements,
+        searchHints: req.searchHints,
+        capability: req.capability,
+      }],
+      stack: target,
+      totalQueryBudget: config.discovery.maxQueriesPerFeature,
+    });
+    task = enriched.tasks[0] as ImplementationTask;
+  } else {
+    // Decompose even for a single feature: it resolves the capability id, the checklist and
+    // the stack idioms, all of which sharpen the search.
+    decomposed = decomposeRequirement({
+      requirement: req.feature,
+      stack: target,
+      requirements: req.requirements,
+    });
 
-  // The agent's own terms lead. Ours follow and fill out the set.
-  if (req.searchHints?.length) {
-    task.searchQueries = [...new Set([...req.searchHints, ...task.searchQueries])]
-      .slice(0, Math.max(2, config.discovery.maxQueriesPerFeature));
-  }
-  if (req.capability && CAPABILITY_BY_ID.has(req.capability)) {
-    task.featureId = req.capability;
-    task.capabilities = [...new Set([req.capability, ...task.capabilities])];
+    const planned = planImplementations({
+      units: decomposed.units,
+      stack: target,
+      totalQueryBudget: config.discovery.maxQueriesPerFeature,
+    });
+
+    task = buildCompositeTask({
+      feature: req.feature,
+      primaryId: decomposed.primary,
+      tasks: planned.tasks,
+      explicitIds: decomposed.explicit,
+      callerRequirements: req.requirements ?? [],
+      language: req.language,
+      framework: req.framework,
+      platform: req.platform,
+      queryBudget: config.discovery.maxQueriesPerFeature,
+      featureIsLabel: isCapabilityLabel(
+        req.feature,
+        decomposed.primary ? CAPABILITY_BY_ID.get(decomposed.primary) : undefined,
+      ),
+    });
   }
 
   // Resolve the code index only when symbol analysis was asked for — connecting spawns a
@@ -190,7 +202,7 @@ export async function runDiscovery(
   }
 
   const degradations = [...result.degradations];
-  if (decomposed.unrecognised.length) {
+  if (decomposed?.unrecognised.length) {
     degradations.push({
       stage: "decompose",
       severity: "info",
