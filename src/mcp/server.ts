@@ -101,6 +101,16 @@ const TOOLS: Tool[] = [
         feature: { type: "string", description: "The capability you want to extract, e.g. 'resumable download'." },
         requirements: { type: "array", items: { type: "string" }, description: "Specific requirements to score against." },
         ...STACK_PROPS,
+        search_hints: {
+          type: "array", items: { type: "string" },
+          description:
+            "Terms YOU believe practitioners use, e.g. ['WorkManager','HTTP Range request']. Issued ahead of the " +
+            "server's own vocabulary — you read the requirement and know the domain.",
+        },
+        capability: {
+          type: "string",
+          description: "Canonical capability id if you recognise one (e.g. 'download', 'encryption'). Omit if unsure.",
+        },
         include_source: {
           type: "boolean",
           description: "Include actual source for the core symbols (Layer 3). Off by default — request it only when the symbol map is not enough.",
@@ -152,6 +162,16 @@ const TOOLS: Tool[] = [
         repositories: {
           type: "array", items: { type: "string" }, minItems: 2, maxItems: 6,
           description: "Repositories to compare, as owner/name.",
+        },
+        search_hints: {
+          type: "array", items: { type: "string" },
+          description:
+            "Terms YOU believe practitioners use, e.g. ['WorkManager','HTTP Range request']. Issued ahead of the " +
+            "server's own vocabulary — you read the requirement and know the domain.",
+        },
+        capability: {
+          type: "string",
+          description: "Canonical capability id if you recognise one (e.g. 'download', 'encryption'). Omit if unsure.",
         },
         requirements: { type: "array", items: { type: "string" }, description: "Requirements to score completeness against." },
         ...STACK_PROPS,
