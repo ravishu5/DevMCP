@@ -287,6 +287,55 @@ export interface LicenseWarning {
 }
 
 // ---------------------------------------------------------------------------
+// Agent-supplied decomposition
+// ---------------------------------------------------------------------------
+
+/**
+ * A feature the CALLING AGENT identified in the requirement.
+ *
+ * This is the primary decomposition path, and it exists because keyword matching kept
+ * losing requirements silently. Over one session of real use, the rule-based decomposer
+ * failed thirteen times in the same way — "downloads" not matching `download`, `queue,`
+ * not matching `queue`, "internationalisation" not being a trigger for i18n, "data at
+ * rest" matching the REST-API rule, "end-to-end encryption" being absorbed by `messaging`
+ * and disappearing without a warning. Each fix was narrow; none generalised.
+ *
+ * The agent has already read the requirement. Asking it for the decomposition costs no
+ * extra inference — it is not a second model call, it is the model that was already
+ * running — and it understands "voice notes need an audio recorder and an opus encoder" in
+ * a way no trigger table will.
+ *
+ * The vocabulary is not discarded. It stops being a RECOGNITION layer, where it kept
+ * failing, and becomes an ENRICHMENT layer, where it is genuinely good: turning a feature
+ * the agent named into the terms practitioners actually search for.
+ */
+export interface AgentFeature {
+  /** Short feature name, e.g. "Resumable background downloads". */
+  name: string;
+  /** One line on what it has to do. Used for relevance scoring. */
+  description?: string;
+  /**
+   * Concrete requirements this feature must satisfy. These become the completeness
+   * checklist candidates are scored against — the highest-leverage field here.
+   */
+  requirements?: string[];
+  /**
+   * Search terms the agent believes practitioners use, e.g. ["WorkManager", "HTTP Range"].
+   * Merged with the vocabulary's idioms rather than replacing them.
+   */
+  searchHints?: string[];
+  /**
+   * Optional canonical capability id, when the agent recognises one. Lets fingerprints and
+   * the knowledge base stay keyed consistently. Unknown ids are ignored, not rejected.
+   */
+  capability?: string;
+  /** Names of other features this one depends on. Drives build order. */
+  dependsOn?: string[];
+  /** Whether the agent thinks reuse is worth pursuing here. */
+  reuse?: "search" | "build-from-scratch";
+}
+
+// ---------------------------------------------------------------------------
 // Implementation planning (the layer between decomposition and discovery)
 // ---------------------------------------------------------------------------
 

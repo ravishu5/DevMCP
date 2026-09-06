@@ -60,6 +60,19 @@ const TOOLS: Tool[] = [
             "The capability you need, in plain words, e.g. 'resumable background file downloader with pause and retry'. " +
             "Describe the CAPABILITY, not a library name.",
         },
+        search_hints: {
+          type: "array", items: { type: "string" },
+          description:
+            "Terms YOU think practitioners search for, e.g. ['WorkManager','HTTP Range request','foreground service']. " +
+            "These are issued first, ahead of the server's own vocabulary. You understand the requirement and the " +
+            "domain; supply them whenever you can name the technique, the platform API, or the well-known library.",
+        },
+        capability: {
+          type: "string",
+          description:
+            "Optional canonical capability id if you recognise one (e.g. 'download', 'oauth', 'encryption'). " +
+            "Sharpens vocabulary lookup and keeps the knowledge base keyed consistently. Omit if unsure.",
+        },
         requirements: {
           type: "array", items: { type: "string" },
           description:
@@ -150,17 +163,51 @@ const TOOLS: Tool[] = [
   {
     name: "build_implementation_plan",
     description:
-      "Turn a whole application requirement into an ordered build plan. mode='decompose' (fast, offline, no quota) " +
-      "breaks the requirement into reusable implementation units, says which are worth searching for and which to " +
-      "build directly, and generates search vocabulary. mode='full' additionally discovers a concrete implementation " +
-      "for each unit and reports cross-repository conflicts: overlapping dependencies, version clashes, duplicate " +
-      "abstractions, naming collisions and licence conflicts. Start here for 'build me an app that…'.",
+      "Turn a whole application requirement into an ordered build plan. Start here for 'build me an app that…'.\n\n" +
+      "DECOMPOSE THE REQUIREMENT YOURSELF and pass it as `features`. You have read the requirement; the server's " +
+      "built-in decomposer is a keyword table, and it loses things silently — it has absorbed 'end-to-end " +
+      "encryption' into 'messaging' and failed to recognise 'internationalisation'. Split the requirement into " +
+      "features, give each its concrete requirements, and add search hints where you know the domain terms. The " +
+      "server then enriches what you supply with platform idioms, ranks candidates, and reports cross-repository " +
+      "conflicts.\n\n" +
+      "mode='decompose' is fast, offline and uses no quota. mode='full' additionally discovers a concrete " +
+      "implementation per feature and reports overlapping dependencies, version clashes, duplicate abstractions, " +
+      "naming collisions and licence conflicts. If you omit `features`, the built-in decomposer runs as a fallback " +
+      "and the result says so.",
     inputSchema: {
       type: "object",
       properties: {
         requirement: {
           type: "string",
-          description: "The application requirement, e.g. 'a social app with auth, feeds, messaging and media uploads'.",
+          description: "The application requirement, verbatim, e.g. 'a social app with auth, feeds and messaging'.",
+        },
+        features: {
+          type: "array",
+          description:
+            "YOUR decomposition of the requirement — strongly preferred over letting the server guess. " +
+            "One entry per reusable feature. Omit features that are application-specific glue, or mark them " +
+            "reuse='build-from-scratch'.",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Short feature name, e.g. 'Resumable background downloads'." },
+              description: { type: "string", description: "One line on what it must do." },
+              requirements: {
+                type: "array", items: { type: "string" },
+                description:
+                  "Concrete things it must do, e.g. ['pause/resume','survives reboot','retry with backoff']. " +
+                  "Each becomes a checklist item candidates are scored against — the highest-leverage field here.",
+              },
+              searchHints: {
+                type: "array", items: { type: "string" },
+                description: "Terms practitioners use, e.g. ['WorkManager','HTTP Range request'].",
+              },
+              capability: { type: "string", description: "Canonical capability id if you recognise one." },
+              dependsOn: { type: "array", items: { type: "string" }, description: "Names of features this one builds on." },
+              reuse: { type: "string", enum: ["search", "build-from-scratch"], description: "Whether searching is worthwhile." },
+            },
+            required: ["name"],
+          },
         },
         mode: {
           type: "string", enum: ["decompose", "full"],
@@ -251,6 +298,8 @@ const SCHEMAS = {
   discover_implementations: z.object({
     feature: z.string().min(1),
     requirements: z.array(z.string()).optional(),
+    search_hints: z.array(z.string()).optional(),
+    capability: z.string().optional(),
     ...stackSchema,
     max_repositories: z.number().int().positive().max(100).optional(),
     max_deep_analysis: z.number().int().positive().max(20).optional(),
@@ -260,6 +309,8 @@ const SCHEMAS = {
     repository: z.string().min(1),
     feature: z.string().min(1),
     requirements: z.array(z.string()).optional(),
+    search_hints: z.array(z.string()).optional(),
+    capability: z.string().optional(),
     ...stackSchema,
     include_source: z.boolean().optional(),
     target_project_path: z.string().optional(),
@@ -277,11 +328,22 @@ const SCHEMAS = {
     feature: z.string().min(1),
     repositories: z.array(z.string()).min(2).max(6),
     requirements: z.array(z.string()).optional(),
+    search_hints: z.array(z.string()).optional(),
+    capability: z.string().optional(),
     ...stackSchema,
     diagnostics: z.boolean().optional(),
   }),
   build_implementation_plan: z.object({
     requirement: z.string().min(1),
+    features: z.array(z.object({
+      name: z.string().min(1),
+      description: z.string().optional(),
+      requirements: z.array(z.string()).optional(),
+      searchHints: z.array(z.string()).optional(),
+      capability: z.string().optional(),
+      dependsOn: z.array(z.string()).optional(),
+      reuse: z.enum(["search", "build-from-scratch"]).optional(),
+    })).max(30).optional(),
     mode: z.enum(["decompose", "full"]).optional(),
     ...stackSchema,
     max_features: z.number().int().positive().max(12).optional(),
@@ -357,6 +419,8 @@ async function dispatch(
       const r = await runDiscovery(services, {
         feature: args.feature as string,
         requirements: args.requirements as string[] | undefined,
+        searchHints: args.search_hints as string[] | undefined,
+        capability: args.capability as string | undefined,
         language: args.language as string | undefined,
         framework: args.framework as string | undefined,
         platform: args.platform as string | undefined,
@@ -378,6 +442,8 @@ async function dispatch(
         repository: args.repository as string,
         feature: args.feature as string,
         requirements: args.requirements as string[] | undefined,
+        searchHints: args.search_hints as string[] | undefined,
+        capability: args.capability as string | undefined,
         language: (args.language as string | undefined) ?? targetProfile?.language,
         framework: (args.framework as string | undefined) ?? targetProfile?.frameworks[0],
         platform: args.platform as string | undefined,
@@ -407,6 +473,8 @@ async function dispatch(
         feature: args.feature as string,
         repositories: args.repositories as string[],
         requirements: args.requirements as string[] | undefined,
+        searchHints: args.search_hints as string[] | undefined,
+        capability: args.capability as string | undefined,
         language: args.language as string | undefined,
         framework: args.framework as string | undefined,
         platform: args.platform as string | undefined,
@@ -425,6 +493,7 @@ async function dispatch(
       }
       return (await runPlan(services, {
         requirement: args.requirement as string,
+        features: args.features as never,
         language: args.language as string | undefined,
         framework: args.framework as string | undefined,
         platform: args.platform as string | undefined,

@@ -248,35 +248,60 @@ function toUnit(
 /**
  * Phrases that look like feature requests but matched no known capability.
  *
- * Heuristic and conservative — we would rather report nothing than flood the caller with
- * noise. Only noun-ish fragments following a request verb are considered.
+ * The point of this list is to say honestly "we did not plan for this". That only works if
+ * it is accurate in BOTH directions, and it was accurate in neither:
+ *
+ *   - It reported "migrations", "adaptive streaming", "deep linking" and "automatic
+ *     reconnection" as unrecognised. Every one of those is a CHECKLIST ITEM of a
+ *     capability that was detected — they are planned for, just not as separate features.
+ *     A list of eight items where six are wrong is noise, and noise hides the two that
+ *     matter.
+ *   - It missed "CSV and PDF import" and "internationalisation", the two genuine gaps.
+ *
+ * So a fragment is only reported when it matches neither a capability TRIGGER nor any
+ * checklist item of a capability we detected. Checklists are the record of what a
+ * capability actually covers, so consulting them is what makes the answer honest.
  */
 function findUnrecognised(requirement: string, extra: string[], covered: Set<string>): string[] {
+  // Everything the detected capabilities already account for.
+  const coveredText = normalise(
+    [...covered]
+      .map((id) => {
+        const cap = CAPABILITY_BY_ID.get(id);
+        return cap ? [cap.label, ...cap.checklist, ...cap.searchTerms, ...cap.triggers].join(" ") : "";
+      })
+      .join(" "),
+  );
+  const coveredTokens = new Set(stemPhrase(coveredText).split(" ").filter(Boolean));
+
   const out = new Set<string>();
-  const sources = [requirement, ...extra];
-  for (const src of sources) {
+  for (const src of [requirement, ...extra]) {
     for (const frag of src.split(/[,;\n·•]|\band\b|\bwith\b|\bplus\b/i)) {
-      const t = frag.trim().toLowerCase().replace(/^(build|create|add|implement|support|need|want|a|an|the)\s+/g, "").trim();
+      const t = frag
+        .trim().toLowerCase()
+        .replace(/^(build|create|add|implement|support|need|want|it needs|a|an|the)\s+/g, "")
+        .trim();
       if (t.length < 4 || t.length > 60) continue;
       if (!/^[a-z][a-z0-9 /_-]*$/.test(t)) continue;
-      const matched = CAPABILITIES.some((c) =>
-        covered.has(c.id) && c.triggers.some((tr) => containsPhrase(t, tr)));
-      const matchesAny = CAPABILITIES.some((c) => c.triggers.some((tr) => containsPhrase(t, tr)));
-      if (!matched && !matchesAny) out.add(t);
+
+      // Already a known capability, under any phrasing?
+      if (CAPABILITIES.some((c) => c.triggers.some((tr) => containsPhrase(t, tr)))) continue;
+
+      // Already covered by a detected capability's checklist or vocabulary? A fragment is
+      // considered covered when MOST of its distinctive words already appear there —
+      // requiring all of them would let one stray adjective resurrect a covered item.
+      const words = stemPhrase(t).split(" ").filter((w) => w.length >= 3);
+      if (words.length) {
+        const known = words.filter((w) => coveredTokens.has(w)).length;
+        if (known * 2 >= words.length) continue;
+      }
+
+      out.add(t);
     }
   }
   return [...out].slice(0, 8);
 }
 
-/**
- * Lowercase and reduce to alphanumeric tokens.
- *
- * Punctuation must go, not just separators. An earlier version replaced only `_ - /`,
- * so in real prose — "a download queue, progress notification, retry and persistent
- * state" — the tokens were `queue,` and `notification,` and matched nothing. The same
- * phrases matched perfectly in isolation, which is precisely why the bug survived: unit
- * tests written with clean inputs cannot see it. Requirements arrive as sentences.
- */
 function normalise(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }

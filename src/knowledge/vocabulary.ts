@@ -328,7 +328,12 @@ export const CAPABILITIES: Capability[] = [
   },
   {
     id: "file-parsing", label: "File format parsing", category: "other", reuseValue: "high",
-    triggers: ["parse pdf", "parse csv", "excel", "docx", "markdown parser", "file format"],
+    // The triggers used to require the VERB ("parse pdf"), so "CSV and PDF import and
+    // export" — the way a requirement is actually phrased — matched nothing at all.
+    triggers: [
+      "parse pdf", "parse csv", "pdf", "csv", "excel", "xlsx", "spreadsheet", "docx",
+      "markdown parser", "file format", "import export", "file parser", "document parsing",
+    ],
     searchTerms: ["PDF text extraction", "CSV parser streaming", "spreadsheet parser", "markdown AST parser"],
     checklist: ["streaming for large files", "malformed input handling", "encoding detection"],
   },
@@ -340,7 +345,13 @@ export const CAPABILITIES: Capability[] = [
   },
   {
     id: "i18n", label: "Internationalisation", category: "other", reuseValue: "medium",
-    triggers: ["i18n", "localization", "localisation", "translation", "multi language", "rtl"],
+    // "internationalisation" — the word itself — was not a trigger; only the abbreviation
+    // "i18n" was. Neither was "right-to-left"; only "rtl".
+    triggers: [
+      "i18n", "l10n", "internationalization", "internationalisation", "localization",
+      "localisation", "translation", "translations", "multi language", "multilingual",
+      "rtl", "right to left", "locale", "locales",
+    ],
     searchTerms: ["i18n library", "pluralization rules", "locale detection", "RTL layout support"],
     checklist: ["string catalogues", "pluralisation", "locale fallback", "date/number formatting"],
   },

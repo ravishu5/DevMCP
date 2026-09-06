@@ -19,6 +19,8 @@ import { decomposeRequirement } from "../analyzers/decompose.js";
 import { generateQueries, isCapabilityLabel } from "../analyzers/query.js";
 import { CAPABILITY_BY_ID, findStackIdioms } from "../knowledge/vocabulary.js";
 import { planImplementations } from "../analyzers/planner.js";
+import { enrichAgentFeatures } from "../analyzers/enrich.js";
+import type { AgentFeature } from "../types/index.js";
 import { discoverImplementations } from "./discover.js";
 import { renderDiscovery, renderBundle, renderMetrics, measureReturned } from "../context/render.js";
 import { buildBundle } from "../context/builder.js";
@@ -41,6 +43,17 @@ import type { ImplementationTask } from "../types/index.js";
 
 export interface DiscoverRequest {
   feature: string;
+  /**
+   * Search terms the calling agent believes practitioners use for this feature.
+   *
+   * Issued FIRST, ahead of anything the vocabulary produces. The agent read the
+   * requirement and knows the domain; our table has been wrong often enough
+   * ("Tink Android" matching a bank, `topic:resume` matching CV builders) that its output
+   * should not outrank the agent's.
+   */
+  searchHints?: string[];
+  /** Canonical capability id, when the agent recognises one. Sharpens enrichment. */
+  capability?: string;
   /**
    * Run symbol-level analysis (code index + minimal implementation set).
    *
@@ -135,6 +148,16 @@ export async function runDiscovery(
     // planner always does. Detect it here rather than trusting a flag nobody sets.
     featureIsLabel: isCapabilityLabel(req.feature, decomposed.primary ? CAPABILITY_BY_ID.get(decomposed.primary) : undefined),
   });
+
+  // The agent's own terms lead. Ours follow and fill out the set.
+  if (req.searchHints?.length) {
+    task.searchQueries = [...new Set([...req.searchHints, ...task.searchQueries])]
+      .slice(0, Math.max(2, config.discovery.maxQueriesPerFeature));
+  }
+  if (req.capability && CAPABILITY_BY_ID.has(req.capability)) {
+    task.featureId = req.capability;
+    task.capabilities = [...new Set([req.capability, ...task.capabilities])];
+  }
 
   // Resolve the code index only when symbol analysis was asked for — connecting spawns a
   // subprocess, which plain discovery should not pay for.
@@ -444,6 +467,10 @@ function dedupe<T>(items: T[]): T[] {
 export interface GetImplementationRequest {
   repository: string;
   feature: string;
+  /** Agent-supplied search terms; used to focus symbol selection. See DiscoverRequest. */
+  searchHints?: string[];
+  /** Canonical capability id, when the agent recognises one. */
+  capability?: string;
   language?: string;
   framework?: string;
   platform?: string;
@@ -509,6 +536,16 @@ export async function runGetImplementation(
     queryBudget: 4,
     featureIsLabel: isCapabilityLabel(req.feature, decomposed.primary ? CAPABILITY_BY_ID.get(decomposed.primary) : undefined),
   });
+
+  // The agent's own terms lead. Ours follow and fill out the set.
+  if (req.searchHints?.length) {
+    task.searchQueries = [...new Set([...req.searchHints, ...task.searchQueries])]
+      .slice(0, Math.max(2, config.discovery.maxQueriesPerFeature));
+  }
+  if (req.capability && CAPABILITY_BY_ID.has(req.capability)) {
+    task.featureId = req.capability;
+    task.capabilities = [...new Set([req.capability, ...task.capabilities])];
+  }
 
   // Metadata first: everything else keys off the commit SHA.
   const metadata = await github.getRepository(repo);
@@ -700,6 +737,10 @@ export async function runAnalyzeRepository(
 export interface CompareRequest {
   feature: string;
   repositories: string[];
+  /** Agent-supplied search terms, used to sharpen the completeness checklist. */
+  searchHints?: string[];
+  /** Canonical capability id, when the agent recognises one. */
+  capability?: string;
   language?: string;
   framework?: string;
   platform?: string;
@@ -731,6 +772,16 @@ export async function runCompare(
     language: req.language, framework: req.framework, platform: req.platform, queryBudget: 3,
     featureIsLabel: isCapabilityLabel(req.feature, decomposed.primary ? CAPABILITY_BY_ID.get(decomposed.primary) : undefined),
   });
+
+  // The agent's own terms lead. Ours follow and fill out the set.
+  if (req.searchHints?.length) {
+    task.searchQueries = [...new Set([...req.searchHints, ...task.searchQueries])]
+      .slice(0, Math.max(2, config.discovery.maxQueriesPerFeature));
+  }
+  if (req.capability && CAPABILITY_BY_ID.has(req.capability)) {
+    task.featureId = req.capability;
+    task.capabilities = [...new Set([req.capability, ...task.capabilities])];
+  }
 
   const codeIndex = await services.codeIndexFor(metrics, github);
   const candidates: Candidate[] = [];
@@ -929,6 +980,16 @@ export async function runFindAlternative(
 
 export interface PlanRequest {
   requirement: string;
+  /**
+   * Features the CALLING AGENT decomposed the requirement into. When present this is
+   * authoritative and the rule-based decomposer is not run at all.
+   *
+   * This is the preferred path. The agent read the requirement; a trigger table did not,
+   * and over real use the table lost requirements silently — "end-to-end encryption"
+   * absorbed by `messaging`, "internationalisation" not being a trigger for i18n. The
+   * vocabulary still contributes the domain terms practitioners search for.
+   */
+  features?: AgentFeature[];
   language?: string;
   framework?: string;
   platform?: string;
@@ -958,11 +1019,27 @@ export async function runPlan(
     distribution: req.distribution ?? "unknown",
   };
 
-  const decomposed = decomposeRequirement({ requirement: req.requirement, stack });
-  const planned = planImplementations({
-    units: decomposed.units, stack,
-    totalQueryBudget: config.discovery.maxQueriesPerFeature * maxFeatures,
-  });
+  /*
+   * Agent decomposition first, rules as fallback.
+   *
+   * The fallback is not dead code: the CLI has no agent behind it, and an MCP client may
+   * call this without supplying features. But when features ARE supplied they are taken as
+   * given — we do not second-guess them, and we do not drop one because no trigger matched.
+   */
+  const agentSupplied = (req.features?.length ?? 0) > 0;
+  const totalQueryBudget = config.discovery.maxQueriesPerFeature * maxFeatures;
+
+  const decomposed = agentSupplied
+    ? undefined
+    : decomposeRequirement({ requirement: req.requirement, stack });
+
+  const enriched = agentSupplied
+    ? enrichAgentFeatures({ features: req.features as AgentFeature[], stack, totalQueryBudget })
+    : undefined;
+
+  const planned = enriched
+    ? { tasks: enriched.tasks, skipped: enriched.skipped, budgetAllocation: [] }
+    : planImplementations({ units: decomposed!.units, stack, totalQueryBudget });
 
   const selections: { feature: string; candidate: Candidate }[] = [];
   const steps: PlanStep[] = [];
@@ -992,6 +1069,15 @@ export async function runPlan(
       const d = await runDiscovery(services, {
         feature: task.feature,
         requirements: task.requirementChecklist,
+        // Carry the planned task's OWN vocabulary through.
+        //
+        // Without this, runDiscovery re-derived everything from the feature name alone and
+        // the agent's search hints were silently discarded between enrichment and search.
+        // "Signal protocol Kotlin" and "libsodium Android" never left the building: the
+        // plan returned an unrelated Android app for end-to-end encryption while the same
+        // query in isolation found a real Double Ratchet library at 78/100.
+        searchHints: task.searchQueries,
+        capability: task.featureId,
         language: req.language, framework: req.framework, platform: req.platform,
         distribution: req.distribution,
         // Use the configured depth, not a hardcoded 3. Too few deep slots and the cheap
@@ -1042,7 +1128,12 @@ export async function runPlan(
     targetStack: [req.language, req.framework, req.platform].filter(Boolean).join(" / ") || undefined,
     steps,
     synthesis,
-    assumptionsToVerify: buildAssumptions(selections, decomposed.unrecognised, skippedForBudget),
+    assumptionsToVerify: buildAssumptions(
+      selections,
+      decomposed?.unrecognised ?? [],
+      skippedForBudget,
+      enriched?.enrichment,
+    ),
     risks: buildRisks(synthesis, licenseSummary, selections),
     licenseSummary,
     provenance: selections.map(({ candidate }) => ({
@@ -1052,7 +1143,11 @@ export async function runPlan(
     })),
   };
 
-  let text = renderPlan(plan, { skippedForBudget, unrecognised: decomposed.unrecognised });
+  let text = renderPlan(plan, {
+    skippedForBudget,
+    unrecognised: decomposed?.unrecognised ?? [],
+    decomposedBy: agentSupplied ? "agent" : "rules",
+  });
   metrics.add("contextTokensReturned", measureReturned(text));
   plan.metrics = metrics.snapshot();
   if (req.diagnostics ?? config.features.diagnostics) text += "\n\n" + renderMetrics(plan.metrics);
@@ -1099,6 +1194,7 @@ function buildAssumptions(
   selections: { feature: string; candidate: Candidate }[],
   unrecognised: string[],
   skippedForBudget: string[],
+  enrichment?: { feature: string; capability?: string; enriched: boolean }[],
 ): string[] {
   const out: string[] = [];
   for (const { feature, candidate } of selections) {
@@ -1114,6 +1210,15 @@ function buildAssumptions(
   }
   if (unrecognised.length) {
     out.push(`These parts of the requirement matched no known capability and were not planned: ${unrecognised.join(", ")}.`);
+  }
+  const unenriched = (enrichment ?? []).filter((e) => !e.enriched).map((e) => e.feature);
+  if (unenriched.length) {
+    // Not a failure — the feature was still searched — but the caller should know it got
+    // its own vocabulary back rather than curated domain terms.
+    out.push(
+      `Searched using your own terms, with no curated vocabulary available: ${unenriched.join(", ")}. ` +
+      `Supply searchHints for these if the results look off-target.`,
+    );
   }
   if (skippedForBudget.length) {
     out.push(`Not searched (feature limit reached): ${skippedForBudget.join(", ")}. Re-run with a higher max_features, or call discover_implementations for each.`);
@@ -1142,9 +1247,13 @@ function buildRisks(
 }
 
 function renderPlan(
-  plan: ImplementationPlan, ctx: { skippedForBudget: string[]; unrecognised: string[] },
+  plan: ImplementationPlan,
+  ctx: { skippedForBudget: string[]; unrecognised: string[]; decomposedBy: "agent" | "rules" },
 ): string {
   const out = [`IMPLEMENTATION PLAN`, ``, `REQUIREMENT:\n${plan.requirement}`];
+  out.push(`\nDECOMPOSED BY:\n${ctx.decomposedBy === "agent"
+    ? "you (the calling agent) — features taken as given"
+    : "built-in rules — pass `features` to decompose it yourself, which is more accurate"}`);
   if (plan.targetStack) out.push(`\nTARGET STACK:\n${plan.targetStack}`);
 
   out.push(`\nBUILD ORDER (${plan.steps.length} steps):`);
