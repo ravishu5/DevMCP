@@ -994,7 +994,10 @@ export async function runPlan(
         requirements: task.requirementChecklist,
         language: req.language, framework: req.framework, platform: req.platform,
         distribution: req.distribution,
-        maxDeepAnalysis: 3,
+        // Use the configured depth, not a hardcoded 3. Too few deep slots and the cheap
+        // metadata ranking picks the shortlist alone — and once a good candidate is left
+        // unanalysed, the depth tier keeps it below worse-but-examined ones permanently.
+        maxDeepAnalysis: config.discovery.maxDeepAnalysis,
       });
       // Prefer a candidate we could actually assess. A step whose rationale reads
       // "unassessed: reuse mode not determined" tells the agent nothing about whether it

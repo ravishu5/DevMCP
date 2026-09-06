@@ -479,6 +479,8 @@ async function analyzeDeeply(
     completeness: c.completeness,
     integrationSurface: c.integrationSurface,
     reusability: c.reusability,
+    dependencies,
+    filePaths,
     architectureMatch,
     relevanceText: readmeText,
     sources,
@@ -489,6 +491,7 @@ async function analyzeDeeply(
     // Reuse mode gates the final score. Without this, an unlicensed repository can be
     // recommended over a permissively-licensed one on maintenance alone (spec §12).
     reuse: c.reuse,
+    completeness: c.completeness,
   });
 
   if (local.length) {

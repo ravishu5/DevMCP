@@ -22,12 +22,13 @@
  */
 
 import type {
-  Candidate, CandidateEvidence, CompletenessReport, EvidenceAxis, EvidenceSignal,
+  Candidate, CandidateEvidence, CompletenessReport, Dependency, EvidenceAxis, EvidenceSignal,
   IntegrationSurface, LicenseInfo, RepoMetadata, RepoQuality, TargetStack,
 } from "../types/index.js";
 import type { ImplementationTask } from "../types/index.js";
 import { licenseScore } from "../analyzers/license.js";
 import type { ReusabilityAssessment } from "../analyzers/reusability.js";
+import { detectHostFramework, hostFrameworkPenalty } from "../analyzers/host-framework.js";
 
 export interface EvidenceInput {
   metadata: RepoMetadata;
@@ -40,6 +41,9 @@ export interface EvidenceInput {
   /** 0–1 architectural fit, when the code index produced a module map. */
   architectureMatch?: number;
   reusability?: ReusabilityAssessment;
+  /** Refines host-framework detection when available; never required. */
+  dependencies?: Dependency[];
+  filePaths?: string[];
   /** Extra text used for relevance: readme excerpt, code-search fragments. */
   relevanceText?: string;
   /** Which sources actually contributed. */
@@ -191,8 +195,31 @@ function stackMatch(input: EvidenceInput): EvidenceSignal | null {
   const frameworkScore = wanted.length ? frameworkHits.length / wanted.length : 0.5;
   if (frameworkHits.length) observation += `; matches ${frameworkHits.join(", ")}`;
 
+  let value = clamp(langScore * 0.75 + frameworkScore * 0.25);
+
+  /*
+   * Host-framework gate.
+   *
+   * `metadata.language` is GitHub's byte-count winner, and for a cross-platform plugin the
+   * native shim can win it: `react-native-blob-courier` reports **Kotlin** (47% of bytes)
+   * and therefore scored a perfect 1.00 against a native Kotlin/Android target. It was
+   * recommended as a file-upload implementation despite being unusable without React
+   * Native — its API is TypeScript, behind the RN bridge. The language matched; the runtime
+   * did not, and nothing was measuring the runtime.
+   */
+  const host = detectHostFramework({
+    metadata: input.metadata,
+    dependencies: input.dependencies,
+    filePaths: input.filePaths,
+  });
+  const penalty = hostFrameworkPenalty(host, [target.framework, target.platform, target.language, ...(target.libraries ?? [])]);
+  if (penalty.multiplier !== 1) {
+    value = clamp(value * penalty.multiplier);
+    observation += `; ${penalty.reason}`;
+  }
+
   return {
-    value: clamp(langScore * 0.75 + frameworkScore * 0.25),
+    value,
     confidence: input.metadata.language ? 0.9 : 0.4,
     source: "github:language+topics",
     observation,
@@ -404,6 +431,7 @@ export function evidenceFromCandidate(
     quality: c.quality, license: c.license,
     completeness: c.completeness, integrationSurface: c.integrationSurface,
     reusability: c.reusability,
+    dependencies: c.dependencies?.direct,
     architectureMatch: c.architecture?.confidence,
     relevanceText, sources,
   });

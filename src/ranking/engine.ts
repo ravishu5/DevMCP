@@ -18,7 +18,8 @@
  */
 
 import type {
-  CandidateEvidence, EvidenceAxis, RankingScore, RankingWeights, ReuseAssessment, ReuseMode,
+  CandidateEvidence, CompletenessReport, EvidenceAxis, RankingScore, RankingWeights,
+  ReuseAssessment, ReuseMode,
 } from "../types/index.js";
 import { normaliseWeights } from "../core/config.js";
 
@@ -33,6 +34,31 @@ export interface RankOptions {
    * Omitted for shallow candidates, which are therefore ranked on evidence alone.
    */
   reuse?: ReuseAssessment;
+  /**
+   * Completeness report, when one was computed. Applies the zero-evidence penalty below.
+   */
+  completeness?: CompletenessReport;
+}
+
+/**
+ * Penalty for evidencing NONE of the requirements we were able to check.
+ *
+ * The completeness axis is weighted 0.15, so scoring zero costs about fifteen points — and
+ * that is far too gentle for what it means. A Gradle plugin for publishing to the Samsung
+ * store scored 58 for "file upload" with **0 of 6** requirements evidenced, and beat a
+ * candidate we had simply not analysed. Fifteen points does not express "we checked six
+ * things this feature needs and found none of them".
+ *
+ * Applied as a multiplier rather than more axis weight, for the same reason as the reuse
+ * adjustment: it is a verdict about the whole candidate, not one more signal to average in.
+ * Not annihilating, because a total miss can also mean unusual naming — but enough that a
+ * repository which shows no sign of doing the job cannot win on licence and stars alone.
+ */
+export function completenessPenalty(c?: CompletenessReport): { multiplier: number; decidable: number } {
+  if (!c || c.total === 0) return { multiplier: 1, decidable: 0 };
+  const decidable = c.total - c.undetermined.length;
+  if (decidable < 3 || c.satisfied > 0) return { multiplier: 1, decidable };
+  return { multiplier: decidable >= 5 ? 0.45 : 0.55, decidable };
 }
 
 /**
@@ -104,6 +130,9 @@ export function rankCandidate(evidence: CandidateEvidence, opts: RankOptions): R
     total += contribution;
   }
 
+  const completeness = completenessPenalty(opts.completeness);
+  if (completeness.multiplier !== 1) total *= completeness.multiplier;
+
   const before = Math.round(total);
   let reuseAdjustment: RankingScore["reuseAdjustment"];
   if (opts.reuse) {
@@ -120,7 +149,7 @@ export function rankCandidate(evidence: CandidateEvidence, opts: RankOptions): R
     total: Math.round(total),
     axes,
     contributions,
-    reasons: explain(evidence, weights, active, opts.reuse),
+    reasons: explain(evidence, weights, active, opts.reuse, completeness),
     confidence: computeConfidence(evidence, weights, active),
     unmeasured: evidence.unmeasured.filter((a) => !disabled.has(a)),
     weightsId: opts.weightsId ?? "default",
@@ -139,6 +168,7 @@ export function rankCandidate(evidence: CandidateEvidence, opts: RankOptions): R
 function explain(
   evidence: CandidateEvidence, weights: RankingWeights, active: EvidenceAxis[],
   reuse?: ReuseAssessment,
+  completeness?: { multiplier: number; decidable: number },
 ): string[] {
   const scored = active
     .map((axis) => ({
@@ -167,12 +197,16 @@ function explain(
     ? [`? Not measured: ${unmeasured.map((a) => AXIS_LABELS[a]?.good.toLowerCase() ?? a).join(", ")} — score assumes a neutral value for these`]
     : [];
 
+  const completenessNote = completeness && completeness.multiplier !== 1
+    ? [`! Score reduced ×${completeness.multiplier} — none of the ${completeness.decidable} checkable requirements were evidenced in this repository`]
+    : [];
+
   // The adjustment is stated in the explanation, never applied invisibly.
   const adjustment = reuse && REUSE_MULTIPLIER[reuse.mode] !== 1
     ? [`! Score reduced ×${REUSE_MULTIPLIER[reuse.mode]} because reuse mode is ${reuse.mode} — ${reuse.reason}`]
     : [];
 
-  return [...positives, ...negatives, ...adjustment, ...caveat];
+  return [...positives, ...negatives, ...completenessNote, ...adjustment, ...caveat];
 }
 
 /**

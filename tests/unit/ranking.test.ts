@@ -535,6 +535,45 @@ describe("ranking engine", () => {
     expect(banned.total).toBeGreaterThan(0);   // still reported, with the reason
   });
 
+  it("penalises a candidate that evidences NONE of the checkable requirements", () => {
+    // Regression: a Gradle plugin for publishing to the Samsung store scored 58 for
+    // "file upload" with 0 of 6 requirements evidenced. The completeness axis is weighted
+    // 0.15, so scoring zero cost only ~15 points — nowhere near what "we checked six things
+    // and found none of them" actually means.
+    const e = strong();
+    const none = assessCompleteness({
+      checklist: ["multipart encoding", "progress reporting", "retry on failure", "chunked uploads", "resumes after failure"],
+      symbols: [{ id: "1", name: "SamsungPublisher", kind: "class", filePath: "src/Publisher.kt" }],
+    });
+    const plain = rankCandidate(e, { weights: DEFAULT_WEIGHTS });
+    const penalised = rankCandidate(e, { weights: DEFAULT_WEIGHTS, completeness: none });
+    expect(none.satisfied).toBe(0);
+    expect(penalised.total).toBeLessThan(plain.total * 0.6);
+    expect(penalised.reasons.some((r) => r.startsWith("!") && /none of the/.test(r))).toBe(true);
+  });
+
+  it("does not penalise when even one requirement is evidenced", () => {
+    const e = strong();
+    const some = assessCompleteness({
+      checklist: ["multipart encoding", "progress reporting", "retry on failure"],
+      symbols: [{ id: "1", name: "MultipartEncoder", kind: "class", filePath: "src/M.kt" }],
+    });
+    expect(some.satisfied).toBeGreaterThan(0);
+    expect(rankCandidate(e, { weights: DEFAULT_WEIGHTS, completeness: some }).total)
+      .toBe(rankCandidate(e, { weights: DEFAULT_WEIGHTS }).total);
+  });
+
+  it("does not penalise when too few requirements could be decided", () => {
+    // Two checkable items finding nothing is weak evidence; five is strong.
+    const e = strong();
+    const thin = assessCompleteness({
+      checklist: ["does something"],
+      symbols: [{ id: "1", name: "Unrelated", kind: "class", filePath: "src/U.kt" }],
+    });
+    expect(rankCandidate(e, { weights: DEFAULT_WEIGHTS, completeness: thin }).total)
+      .toBe(rankCandidate(e, { weights: DEFAULT_WEIGHTS }).total);
+  });
+
   it("sorts by score, then confidence", () => {
     const mk = (total: number, confidence: number) => ({
       score: { total, confidence, axes: {}, contributions: {}, reasons: [], unmeasured: [], weightsId: "d" } as never,
