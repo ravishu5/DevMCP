@@ -29,6 +29,7 @@ import type { ImplementationTask } from "../types/index.js";
 import { licenseScore } from "../analyzers/license.js";
 import type { ReusabilityAssessment } from "../analyzers/reusability.js";
 import { detectHostFramework, hostFrameworkPenalty } from "../analyzers/host-framework.js";
+import { classifyTargetStack, deploymentPenalty, detectDeploymentTarget } from "../analyzers/deployment.js";
 
 export interface EvidenceInput {
   metadata: RepoMetadata;
@@ -268,6 +269,27 @@ function stackMatch(input: EvidenceInput): EvidenceSignal | null {
   if (penalty.multiplier !== 1) {
     value = clamp(value * penalty.multiplier);
     observation += `; ${penalty.reason}`;
+  }
+
+  /*
+   * Deployment-target gate: client-side or server-side?
+   *
+   * The third way a "Kotlin" match can be wrong. `vgv/kolbasa` is a job queue built on
+   * PostgreSQL and won that feature for an Android app; `bloomberg/pushiko` is a JVM
+   * library for SENDING push notifications when the app needs to receive them. Both are
+   * Kotlin, both are libraries, both are unambiguously about the right domain — every
+   * other signal said yes.
+   */
+  const deployment = detectDeploymentTarget({
+    metadata: input.metadata,
+    dependencies: input.dependencies,
+    filePaths: input.filePaths,
+  });
+  const side = classifyTargetStack([target.platform, target.framework, ...(target.libraries ?? [])]);
+  const sidePenalty = deploymentPenalty(deployment, side);
+  if (sidePenalty.multiplier !== 1) {
+    value = clamp(value * sidePenalty.multiplier);
+    observation += `; ${sidePenalty.reason}`;
   }
 
   return {
