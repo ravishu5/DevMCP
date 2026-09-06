@@ -99,7 +99,9 @@ export const CAPABILITIES: Capability[] = [
   },
   {
     id: "http-client", label: "HTTP client layer", category: "networking", reuseValue: "high", foundational: true,
-    triggers: ["http", "rest", "api client", "networking", "web request", "network layer"],
+    // NOT bare "rest": "data at rest" is about encryption, and matched here — sending a
+    // request for at-rest encryption off to search for HTTP clients.
+    triggers: ["http", "rest api", "restful", "api client", "networking", "web request", "network layer"],
     searchTerms: ["HTTP client", "REST client", "API client wrapper", "interceptor", "connection pooling"],
     checklist: ["configurable base URL", "header/interceptor support", "timeout configuration", "error mapping"],
   },
@@ -195,6 +197,43 @@ export const CAPABILITIES: Capability[] = [
     triggers: ["permission", "role", "rbac", "access control", "authorization", "authorisation", "authorize", "authorise", "policy"],
     searchTerms: ["RBAC implementation", "policy engine", "attribute based access control", "permission middleware"],
     checklist: ["role definition", "permission checks", "policy evaluation", "deny by default"],
+  },
+  {
+    id: "encryption", label: "Encryption / cryptography", category: "auth", reuseValue: "high",
+    triggers: [
+      "encrypt", "encryption", "encrypted", "decrypt", "decryption", "cryptography",
+      "cryptographic", "end to end", "end to end encryption", "e2ee", "aes", "rsa",
+      "cipher", "at rest encryption", "data at rest", "signal protocol", "double ratchet",
+      "key exchange", "diffie hellman", "libsodium", "nacl",
+    ],
+    topics: ["cryptography", "encryption", "end-to-end-encryption"],
+    searchTerms: [
+      "end-to-end encryption", "AES-GCM encryption", "libsodium binding",
+      "Signal protocol implementation", "key exchange X25519", "envelope encryption",
+    ],
+    checklist: [
+      "generates and stores keys securely", "authenticated encryption (AEAD)",
+      "key rotation or ratcheting", "nonce/IV handling", "no hand-rolled primitives",
+    ],
+    implies: ["secure-storage"],
+  },
+  {
+    id: "biometric-auth", label: "Biometric authentication", category: "auth", reuseValue: "high",
+    triggers: [
+      "biometric", "biometrics", "fingerprint", "face unlock", "face id", "touch id",
+      "app lock", "device credential",
+    ],
+    narrows: ["auth-session"],
+    topics: ["biometric-authentication", "biometrics"],
+    searchTerms: [
+      "BiometricPrompt", "androidx.biometric", "biometric authentication Android",
+      "device credential fallback", "LocalAuthentication Swift",
+    ],
+    checklist: [
+      "prompts with the platform biometric API", "falls back to device credential",
+      "handles enrolment changes", "does not store biometric data itself",
+    ],
+    implies: ["secure-storage"],
   },
   {
     id: "secure-storage", label: "Secure credential storage", category: "auth", reuseValue: "high",
@@ -342,6 +381,13 @@ export const STACK_IDIOMS: StackIdioms[] = [
       "http-client": ["OkHttp", "Retrofit", "Ktor client"],
       persistence: ["Room database", "DataStore", "SQLDelight"],
       "secure-storage": ["EncryptedSharedPreferences", "Android Keystore"],
+      // NOT "Tink Android": Tink Germany is a banking-API company, and its SDK outranked
+      // every crypto library. Short brand names collide — qualify them, as with topic:resume.
+      encryption: [
+        "Google Tink cryptography", "com.google.crypto.tink",
+        "libsodium Android", "AES-GCM Android Keystore", "signal-protocol-android",
+      ],
+      "biometric-auth": ["androidx.biometric BiometricPrompt", "biometric authentication Android"],
       "image-loading": ["Coil", "Glide", "Picasso"],
       "media-playback": ["ExoPlayer", "Media3"],
       "state-management": ["ViewModel StateFlow", "MVI Android"],
@@ -364,6 +410,8 @@ export const STACK_IDIOMS: StackIdioms[] = [
       "http-client": ["URLSession", "Alamofire"],
       persistence: ["Core Data", "GRDB", "SwiftData"],
       "secure-storage": ["Keychain Services", "KeychainAccess"],
+      encryption: ["CryptoKit", "libsodium Swift", "RNCryptor"],
+      "biometric-auth": ["LocalAuthentication", "Face ID Swift"],
       "image-loading": ["Kingfisher", "SDWebImage", "AsyncImage"],
       "media-playback": ["AVPlayer", "AVFoundation"],
       "state-management": ["Combine ObservableObject", "TCA Composable Architecture"],
@@ -383,6 +431,8 @@ export const STACK_IDIOMS: StackIdioms[] = [
       caching: ["TanStack Query cache", "Redis cache node", "lru-cache"],
       "auth-session": ["NextAuth", "Auth.js", "Lucia auth", "Passport.js"],
       oauth: ["NextAuth Google provider", "Auth.js OAuth", "openid-client"],
+      encryption: ["libsodium-wrappers", "node crypto AES-GCM", "tweetnacl", "@matrix-org/olm"],
+      "biometric-auth": ["WebAuthn", "passkeys"],
       websocket: ["Socket.IO", "ws reconnect", "Pusher channels"],
       queue: ["BullMQ", "pg-boss", "Redis queue node"],
       payments: ["Stripe node SDK", "stripe webhooks express"],
@@ -401,6 +451,7 @@ export const STACK_IDIOMS: StackIdioms[] = [
       caching: ["Redis cache python", "functools lru_cache", "django cache framework"],
       "search-indexing": ["Whoosh", "Elasticsearch python client", "pgvector search"],
       validation: ["Pydantic model", "marshmallow schema"],
+      encryption: ["cryptography fernet", "PyNaCl", "AES-GCM python"],
     },
   },
   {

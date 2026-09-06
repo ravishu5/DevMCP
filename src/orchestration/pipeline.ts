@@ -16,8 +16,8 @@ import type { BundleMetrics } from "../types/bundle.js";
 import type { GitHubProvider } from "../providers/github/types.js";
 import type { RepoMetadata } from "../types/index.js";
 import { decomposeRequirement } from "../analyzers/decompose.js";
-import { isCapabilityLabel } from "../analyzers/query.js";
-import { CAPABILITY_BY_ID } from "../knowledge/vocabulary.js";
+import { generateQueries, isCapabilityLabel } from "../analyzers/query.js";
+import { CAPABILITY_BY_ID, findStackIdioms } from "../knowledge/vocabulary.js";
 import { planImplementations } from "../analyzers/planner.js";
 import { discoverImplementations } from "./discover.js";
 import { renderDiscovery, renderBundle, renderMetrics, measureReturned } from "../context/render.js";
@@ -128,6 +128,8 @@ export async function runDiscovery(
     explicitIds: decomposed.explicit,
     callerRequirements: req.requirements ?? [],
     language: req.language,
+    framework: req.framework,
+    platform: req.platform,
     queryBudget: config.discovery.maxQueriesPerFeature,
     // A caller may legitimately pass a capability label ("Local persistence"), and the
     // planner always does. Detect it here rather than trusting a flag nobody sets.
@@ -320,6 +322,8 @@ function buildCompositeTask(input: {
   explicitIds: string[];
   callerRequirements: string[];
   language?: string;
+  framework?: string;
+  platform?: string;
   queryBudget: number;
   /** True when `feature` is one of our capability labels rather than the caller's words. */
   featureIsLabel?: boolean;
@@ -384,8 +388,34 @@ function buildCompositeTask(input: {
   //    implies `persistence`, so padding sent "Room database" out for a resumable-transfer
   //    search and duly returned a Room backup library as the top result. A short, precise
   //    query set beats a longer one containing a query for the wrong thing.
+  /*
+   * The primary capability gets the WHOLE query budget.
+   *
+   * `planImplementations` divides the budget across every capability it detected — correct
+   * when building a multi-feature plan, wrong when discovering ONE feature. And the
+   * caller's requirement checklist feeds decomposition, so "Push notifications" with a
+   * checklist containing "token registration" spawned `auth-session` (from "registration")
+   * and `secure-storage`, split the six-query budget three ways, and left the actual
+   * subject a single query. Eleven candidates were considered for push notifications, all
+   * of them student demos.
+   *
+   * Requirements belong in the completeness checklist, not in the search budget.
+   */
+  const cap = CAPABILITY_BY_ID.get(primary.featureId);
+  const fullBudgetQueries = cap
+    ? generateQueries({
+        feature: primary.feature,
+        capabilityId: primary.featureId,
+        stack: input.language ? { language: input.language } : undefined,
+        idioms: findStackIdioms(input.language, input.platform, input.framework),
+        requirements: input.callerRequirements,
+        limit: input.queryBudget,
+      })
+    : primary.searchQueries;
+
   const queries = dedupe([
     ...(literal ? [literal] : []),
+    ...fullBudgetQueries,
     ...primary.searchQueries,
   ]).filter(Boolean).slice(0, Math.max(2, input.queryBudget));
 
@@ -474,6 +504,8 @@ export async function runGetImplementation(
     explicitIds: decomposed.explicit,
     callerRequirements: req.requirements ?? [],
     language: req.language,
+    framework: req.framework,
+    platform: req.platform,
     queryBudget: 4,
     featureIsLabel: isCapabilityLabel(req.feature, decomposed.primary ? CAPABILITY_BY_ID.get(decomposed.primary) : undefined),
   });
@@ -696,7 +728,7 @@ export async function runCompare(
   const task = buildCompositeTask({
     feature: req.feature, primaryId: decomposed.primary, tasks: planned.tasks,
     explicitIds: decomposed.explicit, callerRequirements: req.requirements ?? [],
-    language: req.language, queryBudget: 3,
+    language: req.language, framework: req.framework, platform: req.platform, queryBudget: 3,
     featureIsLabel: isCapabilityLabel(req.feature, decomposed.primary ? CAPABILITY_BY_ID.get(decomposed.primary) : undefined),
   });
 
