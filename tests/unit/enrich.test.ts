@@ -139,3 +139,20 @@ describe("agent-supplied decomposition", () => {
     expect(r.skipped).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe("mustMention — vendors are hard requirements", () => {
+  it("carries the agent's declaration onto the task", () => {
+    const r = enrichAgentFeatures({
+      features: [{ name: "Stripe payments", capability: "payments", mustMention: ["Stripe"] }],
+      stack,
+    });
+    expect(r.tasks[0]!.mustMention).toEqual(["Stripe"]);
+  });
+
+  it("leaves it undefined when the agent declares nothing", () => {
+    const r = enrichAgentFeatures({ features: [{ name: "Payments" }], stack });
+    expect(r.tasks[0]!.mustMention).toBeUndefined();
+  });
+});

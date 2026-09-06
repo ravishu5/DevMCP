@@ -26,7 +26,7 @@ import type { Dependency, RepoMetadata } from "../types/index.js";
 
 export type HostFramework =
   | "react-native" | "flutter" | "cordova" | "capacitor" | "nativescript"
-  | "xamarin" | "unity" | "electron" | "native" | "unknown";
+  | "xamarin" | "unity" | "electron" | "tauri" | "native" | "unknown";
 
 export interface HostFrameworkAssessment {
   framework: HostFramework;
@@ -102,6 +102,14 @@ const FRAMEWORKS: FrameworkRule[] = [
     mention: /\bunity\s?(3d|engine|package|plugin)\b/i,
     file: /(^|\/)Assets\/.*\.unity$/i,
     targetAliases: /\bunity\b/i,
+  },
+  {
+    framework: "tauri",
+    name: /(^|\/)tauri-plugin-|(^|\/)tauri-/i,
+    mention: /\btauri\b/i,
+    dependency: /^@tauri-apps\/|^tauri($|[-_])/i,
+    file: /(^|\/)tauri\.conf\.json$/i,
+    targetAliases: /\btauri\b/i,
   },
   {
     framework: "electron",

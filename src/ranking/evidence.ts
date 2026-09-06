@@ -100,6 +100,40 @@ export function collectEvidence(input: EvidenceInput): CandidateEvidence {
  * repo tagged `downloader` is asserting its own purpose, which is far stronger than the
  * word appearing somewhere in a README.
  */
+/**
+ * Words that look like proper nouns in a feature name but name no product.
+ * Includes stacks and platforms, which are matched by the stackMatch axis instead.
+ */
+const NOT_A_PRODUCT = new Set([
+  "android", "ios", "web", "kotlin", "java", "swift", "python", "javascript", "typescript",
+  "http", "https", "rest", "api", "sdk", "url", "json", "xml", "csv", "pdf", "sql", "ui",
+  "oauth", "jwt", "rtl", "e2ee", "aes", "rsa", "tls", "ssl", "crud", "mvi", "mvvm",
+  "build", "create", "add", "the", "and", "with", "for", "full", "text",
+]);
+
+/**
+ * Products the candidate must reference: the agent's declaration first, then a
+ * deliberately low-recall fallback for callers that declared nothing.
+ *
+ * The fallback only trusts capitalisation AFTER the first word, because sentence case
+ * makes the first word uninformative — and it cannot be salvaged by heuristics, since
+ * "Stripe" and "Resumable" are both capitalised English words that begin a feature name.
+ * That is precisely why `mustMention` exists: the agent knows which is which, and an
+ * unreliable guess here silently demotes correct candidates.
+ */
+function namedProducts(task: { feature: string; mustMention?: string[] }): string[] {
+  if (task.mustMention?.length) {
+    return task.mustMention.map((t) => t.toLowerCase().trim()).filter(Boolean);
+  }
+  return task.feature
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(1)
+    .filter((w) => /^[A-Z][A-Za-z0-9.+-]{2,}$/.test(w))
+    .map((w) => w.replace(/[^A-Za-z0-9.+-]/g, "").toLowerCase())
+    .filter((w) => w.length >= 3 && !NOT_A_PRODUCT.has(w));
+}
+
 function featureRelevance(input: EvidenceInput): EvidenceSignal | null {
   const task = input.task;
   if (!task) return null;
@@ -133,6 +167,24 @@ function featureRelevance(input: EvidenceInput): EvidenceSignal | null {
   if (bodyHits.length) {
     score += Math.min(0.30, bodyHits.length * 0.06);
     evidence.push(`readme/code: ${bodyHits.length} term(s)`);
+  }
+
+  /*
+   * Named-product gate.
+   *
+   * A product named in the feature is a hard requirement. Scaling relevance rather than
+   * zeroing it keeps a competitor visible as an alternative — sometimes the answer really
+   * is "Stripe has no Android SDK for this, use X" — but it can no longer outrank the thing
+   * that was actually asked for.
+   */
+  const products = namedProducts(task);
+  if (products.length) {
+    const searchable = `${md.ref.fullName} ${nameText} ${topicText} ${bodyText}`.toLowerCase();
+    const missing = products.filter((p) => !searchable.includes(p));
+    if (missing.length === products.length) {
+      score *= 0.35;
+      evidence.push(`does not mention ${products.join(" or ")}, which the feature names`);
+    }
   }
 
   return {

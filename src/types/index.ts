@@ -329,6 +329,20 @@ export interface AgentFeature {
    * the knowledge base stay keyed consistently. Unknown ids are ignored, not rejected.
    */
   capability?: string;
+  /**
+   * Terms a candidate MUST reference to be relevant — a vendor, product or platform API
+   * the requirement names, e.g. ["Stripe"] or ["Firebase"].
+   *
+   * These are hard requirements, not preferences. Asked for "Stripe payments", the system
+   * returned Adyen (80), Hook0 (73) and Braintree (68): every payment SDK except the one
+   * requested. Relevance scored them highly because they are unambiguously about payments,
+   * which is true and beside the point.
+   *
+   * Declared rather than guessed, because guessing is unreliable in both directions —
+   * "Stripe" and "Resumable" are both capitalised English words, and a heuristic that
+   * catches the first also catches the second. You know which words name a product.
+   */
+  mustMention?: string[];
   /** Names of other features this one depends on. Drives build order. */
   dependsOn?: string[];
   /** Whether the agent thinks reuse is worth pursuing here. */
@@ -366,6 +380,8 @@ export interface ImplementationTask {
   requirementChecklist: string[];
   /** Search vocabulary, including terms the user would not know (spec §20). */
   searchQueries: string[];
+  /** Terms a candidate must reference; see AgentFeature.mustMention. */
+  mustMention?: string[];
   /** Why this strategy was chosen — surfaced so the agent can override it. */
   rationale: string;
   /** Relative discovery budget, 0-1. Foundational/high-reuse features get more quota. */

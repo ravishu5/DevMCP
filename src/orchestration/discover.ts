@@ -125,12 +125,7 @@ export async function discoverImplementations(
       break;
     }
     try {
-      const results = await deps.github.searchRepositories(query, {
-        language: opts.target?.language,
-        perPage: Math.min(30, opts.maxRepositories),
-        excludeForks: true,
-        excludeArchived: true,
-      });
+      const results = await searchWithRelaxation(query, opts, deps, degradations);
       queriesIssued.push(query);
       for (const md of results) {
         const key = md.ref.fullName.toLowerCase();
@@ -544,4 +539,71 @@ function dedupeSymbols(symbols: CodeSymbol[]): CodeSymbol[] {
     if (!existing || (s.relevance ?? 0) > (existing.relevance ?? 0)) byId.set(s.id, s);
   }
   return [...byId.values()];
+}
+
+/**
+ * Search, and progressively relax the query when it matches nothing.
+ *
+ * GitHub repository search ANDs its terms across name, description and topics, so a
+ * specific four-term phrase usually matches zero repositories. "Stripe Android SDK
+ * PaymentSheet" returned **nothing** — while `stripe/stripe-android` (1,535 stars, Kotlin,
+ * actively maintained) sat there with the description "Stripe Android SDK". The query was
+ * one word too precise, the search was silently wasted, and the plan recommended Adyen for
+ * a requirement that named Stripe.
+ *
+ * Relaxation drops trailing terms, which are the least load-bearing in a search phrase:
+ * people write "Stripe Android SDK PaymentSheet" with the subject first and the
+ * qualifier last. It costs an extra request ONLY when the first returned nothing — exactly
+ * when that request produced no value anyway.
+ *
+ * A query that still finds nothing after relaxation is reported. A silently empty search
+ * looks identical to a search that ran and found the field genuinely bare, and the caller
+ * needs to tell those apart to know whether to rephrase.
+ */
+async function searchWithRelaxation(
+  query: string, opts: DiscoverOptions, deps: DiscoverDeps, degradations: Degradation[],
+): Promise<RepoMetadata[]> {
+  const searchOptions = {
+    language: opts.target?.language,
+    perPage: Math.min(30, opts.maxRepositories),
+    excludeForks: true,
+    excludeArchived: true,
+  };
+
+  const first = await deps.github.searchRepositories(query, searchOptions);
+  if (first.length > 0) return first;
+
+  // Qualifiers (`topic:x`, `language:y`) are structural — relaxing them changes the
+  // meaning of the search rather than widening it.
+  const terms = query.split(/\s+/).filter(Boolean);
+  if (terms.some((t) => t.includes(":")) || terms.length < 3) {
+    degradations.push({
+      stage: "discover.search", subject: query, severity: "info",
+      reason: "matched no repositories",
+      fallback: "continuing with the other queries",
+    });
+    return [];
+  }
+
+  for (let drop = 1; drop <= 2 && terms.length - drop >= 2; drop++) {
+    if (!deps.budget.canAfford("search")) break;
+    const relaxed = terms.slice(0, terms.length - drop).join(" ");
+    const results = await deps.github.searchRepositories(relaxed, searchOptions);
+    if (results.length > 0) {
+      deps.logger.debug("relaxed a zero-result query", { from: query, to: relaxed, results: results.length });
+      degradations.push({
+        stage: "discover.search", subject: query, severity: "info",
+        reason: "matched no repositories — GitHub search requires every term to appear",
+        fallback: `broadened to "${relaxed}", which matched ${results.length}`,
+      });
+      return results;
+    }
+  }
+
+  degradations.push({
+    stage: "discover.search", subject: query, severity: "info",
+    reason: "matched no repositories, even after broadening",
+    fallback: "continuing with the other queries",
+  });
+  return [];
 }

@@ -73,6 +73,12 @@ const TOOLS: Tool[] = [
             "Optional canonical capability id if you recognise one (e.g. 'download', 'oauth', 'encryption'). " +
             "Sharpens vocabulary lookup and keeps the knowledge base keyed consistently. Omit if unsure.",
         },
+        must_mention: {
+          type: "array", items: { type: "string" },
+          description:
+            "Vendors or products a candidate MUST reference, e.g. ['Stripe']. Hard requirements, not preferences — " +
+            "without this, asking for Stripe payments returns Adyen and Braintree.",
+        },
         requirements: {
           type: "array", items: { type: "string" },
           description:
@@ -223,6 +229,13 @@ const TOOLS: Tool[] = [
                 description: "Terms practitioners use, e.g. ['WorkManager','HTTP Range request'].",
               },
               capability: { type: "string", description: "Canonical capability id if you recognise one." },
+              mustMention: {
+                type: "array", items: { type: "string" },
+                description:
+                  "Vendors, products or platform APIs a candidate MUST reference, e.g. ['Stripe'] or ['Firebase']. " +
+                  "Hard requirements, not preferences — without this, asking for Stripe payments returns Adyen and " +
+                  "Braintree, which are about payments but are not what was asked for.",
+              },
               dependsOn: { type: "array", items: { type: "string" }, description: "Names of features this one builds on." },
               reuse: { type: "string", enum: ["search", "build-from-scratch"], description: "Whether searching is worthwhile." },
             },
@@ -234,7 +247,7 @@ const TOOLS: Tool[] = [
           description: "'decompose' is instant and free. 'full' also discovers implementations — slower, uses search quota.",
         },
         ...STACK_PROPS,
-        max_features: { type: "number", description: "In full mode, how many features to discover implementations for (default 4)." },
+        max_features: { type: "number", description: "In full mode, how many features to discover implementations for (default 4, max 20). Each costs a few GitHub searches against a 30/min limit, so large plans take minutes." },
         diagnostics: { type: "boolean" },
       },
       required: ["requirement"],
@@ -320,6 +333,7 @@ const SCHEMAS = {
     requirements: z.array(z.string()).optional(),
     search_hints: z.array(z.string()).optional(),
     capability: z.string().optional(),
+    must_mention: z.array(z.string()).optional(),
     ...stackSchema,
     max_repositories: z.number().int().positive().max(100).optional(),
     max_deep_analysis: z.number().int().positive().max(20).optional(),
@@ -361,12 +375,13 @@ const SCHEMAS = {
       requirements: z.array(z.string()).optional(),
       searchHints: z.array(z.string()).optional(),
       capability: z.string().optional(),
+      mustMention: z.array(z.string()).optional(),
       dependsOn: z.array(z.string()).optional(),
       reuse: z.enum(["search", "build-from-scratch"]).optional(),
     })).max(30).optional(),
     mode: z.enum(["decompose", "full"]).optional(),
     ...stackSchema,
-    max_features: z.number().int().positive().max(12).optional(),
+    max_features: z.number().int().positive().max(20).optional(),
     diagnostics: z.boolean().optional(),
   }),
   analyze_target_project: z.object({ path: z.string().min(1) }),
@@ -441,6 +456,7 @@ async function dispatch(
         requirements: args.requirements as string[] | undefined,
         searchHints: args.search_hints as string[] | undefined,
         capability: args.capability as string | undefined,
+        mustMention: args.must_mention as string[] | undefined,
         language: args.language as string | undefined,
         framework: args.framework as string | undefined,
         platform: args.platform as string | undefined,

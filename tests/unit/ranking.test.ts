@@ -647,3 +647,59 @@ describe("deduplication (spec §19)", () => {
     expect(dedupeCandidates([]).kept).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe("named products are hard requirements", () => {
+  const task = (over: Partial<{ feature: string; mustMention: string[] }> = {}) => ({
+    featureId: "payments", feature: "Stripe payments and subscriptions",
+    strategy: "reuse-library" as const, lookingFor: [], capabilities: ["payments"],
+    requirementChecklist: [], searchQueries: ["stripe"], rationale: "",
+    budgetShare: 1, priority: 80, dependsOn: [], ...over,
+  });
+
+  const repo = (fullName: string, description: string, topics: string[] = []) => ({
+    ref: refFromFullName(fullName), topics, description,
+    stars: 1000, forks: 100, watchers: 20, openIssues: 5,
+    isFork: false, archived: false, language: "Kotlin",
+    pushedAt: new Date().toISOString(),
+  });
+
+  it("demotes a competitor that does not mention the named vendor", () => {
+    /*
+     * Asked for "Stripe payments", the system returned Adyen (80), Hook0 (73) and
+     * Braintree (68) — every payment SDK except the one requested. Relevance scored them
+     * highly because they are unambiguously about payments, which is true and beside the
+     * point: you cannot satisfy "Stripe" with Adyen.
+     */
+    const withGate = collectEvidence({
+      metadata: repo("Adyen/adyen-android", "Adyen Android Drop-in and Components", ["payments", "android"]),
+      task: task({ mustMention: ["Stripe"] }), sources: ["github:metadata"],
+    });
+    const withoutGate = collectEvidence({
+      metadata: repo("Adyen/adyen-android", "Adyen Android Drop-in and Components", ["payments", "android"]),
+      task: task(), sources: ["github:metadata"],
+    });
+    expect(withGate.axes.featureRelevance.value).toBeLessThan(withoutGate.axes.featureRelevance.value);
+    expect(withGate.axes.featureRelevance.observation).toMatch(/does not mention stripe/i);
+  });
+
+  it("leaves the named vendor's own SDK untouched", () => {
+    const e = collectEvidence({
+      metadata: repo("stripe/stripe-android", "Stripe Android SDK", ["stripe", "payments", "android"]),
+      task: task({ mustMention: ["Stripe"] }), sources: ["github:metadata"],
+    });
+    expect(e.axes.featureRelevance.observation).not.toMatch(/does not mention/i);
+  });
+
+  it("does not fire when nothing was declared and the feature leads with a plain word", () => {
+    // "Resumable" is a capitalised English adjective, not a product — guessing here would
+    // silently demote correct candidates, which is why mustMention is declared not inferred.
+    const e = collectEvidence({
+      metadata: repo("gotev/android-upload-service", "Easily upload files", ["android", "upload"]),
+      task: task({ feature: "Resumable background uploads", mustMention: undefined }),
+      sources: ["github:metadata"],
+    });
+    expect(e.axes.featureRelevance.observation).not.toMatch(/does not mention/i);
+  });
+});

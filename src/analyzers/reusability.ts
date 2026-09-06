@@ -82,7 +82,15 @@ const APP_MARKERS: [RegExp, string][] = [
   [/"bin"\s*:/i, "npm bin entry"],
 ];
 
-const LIBRARY_TOPICS = /\b(library|libraries|sdk|framework|toolkit|client|wrapper|binding|plugin|package)\b/i;
+/**
+ * Bare "client" is deliberately absent.
+ *
+ * "Android client for a self-hosted Flux server" describes an APP, not a library — and it
+ * was scoring a library point, which tied against the app signals and produced "mixed",
+ * skipping the REFERENCE_ONLY gate entirely. A one-star RSS reader then won "biometric app
+ * lock". "client library" and "client SDK" are still library signals; "client for X" is not.
+ */
+const LIBRARY_TOPICS = /\b(library|libraries|sdk|framework|toolkit|wrapper|binding|plugin|package)\b|\bclient (library|sdk)\b/i;
 const APP_TOPICS = /\b(app|application|android-app|ios-app|demo|sample|example|tutorial|starter|boilerplate|template|clone|portfolio)\b/i;
 
 /** Split identifiers so word-boundary patterns behave: WorkManagerExample -> work manager example. */

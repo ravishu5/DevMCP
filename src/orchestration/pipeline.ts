@@ -54,6 +54,8 @@ export interface DiscoverRequest {
   searchHints?: string[];
   /** Canonical capability id, when the agent recognises one. Sharpens enrichment. */
   capability?: string;
+  /** Terms a candidate must reference. See AgentFeature.mustMention. */
+  mustMention?: string[];
   /**
    * Run symbol-level analysis (code index + minimal implementation set).
    *
@@ -122,7 +124,7 @@ export async function runDiscovery(
    * Without hints we fall back to the rule-based decomposer, which is what the CLI and
    * unhinted clients get.
    */
-  const agentDirected = Boolean(req.searchHints?.length || req.capability);
+  const agentDirected = Boolean(req.searchHints?.length || req.capability || req.mustMention?.length);
 
   let task: ImplementationTask;
   let decomposed: ReturnType<typeof decomposeRequirement> | undefined;
@@ -134,6 +136,7 @@ export async function runDiscovery(
         requirements: req.requirements,
         searchHints: req.searchHints,
         capability: req.capability,
+        mustMention: req.mustMention,
       }],
       stack: target,
       totalQueryBudget: config.discovery.maxQueriesPerFeature,
@@ -169,6 +172,7 @@ export async function runDiscovery(
         decomposed.primary ? CAPABILITY_BY_ID.get(decomposed.primary) : undefined,
       ),
     });
+    if (req.mustMention?.length) task.mustMention = req.mustMention;
   }
 
   // Resolve the code index only when symbol analysis was asked for — connecting spawns a
@@ -1024,7 +1028,16 @@ export async function runPlan(
 ): Promise<{ text: string; data: ImplementationPlan; metrics: BundleMetrics }> {
   const metrics = new MetricsCollector();
   const config = services.config;
-  const maxFeatures = Math.min(req.maxFeatures ?? 4, 8);
+  /*
+   * The ceiling is quota, not policy.
+   *
+   * This capped at 8 while the tool schema advertised 12 — so asking for 12 silently got
+   * you 8. The features beyond the cap ARE reported under "Not searched", so nothing
+   * vanished, but the two numbers disagreeing is its own bug. Raised to match the schema,
+   * with the real constraint stated: each feature costs a few searches against a 30/min
+   * limit, so a 20-feature plan takes minutes, not seconds.
+   */
+  const maxFeatures = Math.min(req.maxFeatures ?? 4, 20);
 
   const stack: TargetStack = {
     language: req.language, framework: req.framework, platform: req.platform,
@@ -1090,6 +1103,7 @@ export async function runPlan(
         // query in isolation found a real Double Ratchet library at 78/100.
         searchHints: task.searchQueries,
         capability: task.featureId,
+        mustMention: task.mustMention,
         language: req.language, framework: req.framework, platform: req.platform,
         distribution: req.distribution,
         // Use the configured depth, not a hardcoded 3. Too few deep slots and the cheap
