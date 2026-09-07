@@ -443,12 +443,38 @@ function maintenance(input: EvidenceInput): EvidenceSignal | null {
     value = clamp(value * 0.8 + Math.min(1, commits / 30) * 0.2);
   }
 
+  /*
+   * Recency is not maintenance. Maintenance is the claim that a project HAS BEEN kept
+   * working, and a repository with no history cannot have demonstrated it.
+   *
+   * Scored on recency alone, `vinkurov/webhook-kit` — created 2026-08-08, pushed
+   * 2026-08-10, zero stars — took a perfect 1.00 and beat stripe/stripe-node (4,503 stars,
+   * 52 test files, 55 commits in 90 days) for a Stripe billing query. Every brand-new
+   * repository looks perfectly maintained on its second day.
+   *
+   * The cap is a ceiling, not a penalty: a young project can still be excellent, and this
+   * says only that it has not yet proven it will be maintained. It lifts as the project
+   * ages, reaching the full range at a year.
+   */
+  let ageNote = "";
+  const createdAt = md.createdAt;
+  if (createdAt) {
+    const ageDays = (Date.now() - Date.parse(createdAt)) / 86_400_000;
+    if (Number.isFinite(ageDays) && ageDays >= 0) {
+      const ceiling = ageDays <= 30 ? 0.45 : ageDays <= 90 ? 0.6 : ageDays <= 365 ? 0.8 : 1;
+      if (ceiling < value) {
+        value = ceiling;
+        ageNote = `, only ${Math.round(ageDays)}d old so maintenance is unproven`;
+      }
+    }
+  }
+
   return {
     value: clamp(value),
     confidence: 0.85,
     source: "github:pushed_at+commits",
     observation: `last activity ${Math.round(days)}d ago` +
-      (commits !== undefined ? `, ${commits} commit(s) in 90d` : ""),
+      (commits !== undefined ? `, ${commits} commit(s) in 90d` : "") + ageNote,
   };
 }
 

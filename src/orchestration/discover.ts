@@ -112,9 +112,33 @@ export async function discoverImplementations(
     }
   }
 
-  // --- Stage 1: multi-query search -----------------------------------------
-  for (const query of opts.task.searchQueries) {
-    if (byName.size >= opts.maxRepositories) break;
+  /*
+   * --- Stage 1: multi-query search -----------------------------------------
+   *
+   * Every query gets a SHARE of the pool rather than the first one taking all of it.
+   *
+   * The loop used to stop as soon as the pool was full, which meant the first query
+   * routinely consumed the entire budget and the rest were never issued. That threw away
+   * the diversity the query planner exists to create — `selectDiverse` round-robins across
+   * shapes precisely so that different corners of GitHub get covered — and made discovery
+   * fragile in two ways:
+   *
+   *   A bad first query poisoned everything. "golang-migrate" looks like an excellent hint
+   *   and GitHub does not return golang-migrate/migrate for it; it filled all 25 slots with
+   *   unrelated Gin projects and no other query ran.
+   *
+   *   A declared vendor's SDK query never ran when a feature query filled the quota first,
+   *   which is how stripe/stripe-node stayed absent from a Stripe billing search.
+   *
+   * Results beyond a query's share are kept and used to top the pool up afterwards, so a
+   * query that returns little costs the others nothing.
+   */
+  const plannedQueries = opts.task.searchQueries;
+  const perQuery = Math.max(3, Math.ceil(opts.maxRepositories / Math.max(1, plannedQueries.length)));
+  const overflow: { md: RepoMetadata; query: string }[] = [];
+
+  for (const query of plannedQueries) {
+    if (byName.size >= opts.maxRepositories && overflow.length > 0) break;
     if (!deps.budget.canAfford("search")) {
       degradations.push({
         stage: "discover.search",
@@ -127,6 +151,7 @@ export async function discoverImplementations(
     try {
       const results = await searchWithRelaxation(query, opts, deps, degradations);
       queriesIssued.push(query);
+      let admitted = 0;
       for (const md of results) {
         const key = md.ref.fullName.toLowerCase();
         const existing = byName.get(key);
@@ -135,8 +160,12 @@ export async function discoverImplementations(
           if (!existing.discoveredVia.includes(query)) existing.discoveredVia.push(query);
           continue;
         }
-        if (byName.size >= opts.maxRepositories) break;
+        if (admitted >= perQuery || byName.size >= opts.maxRepositories) {
+          overflow.push({ md, query });
+          continue;
+        }
         byName.set(key, { ref: md.ref, metadata: md, discoveredVia: [query] });
+        admitted++;
       }
     } catch (err) {
       // One failed query must not lose the others.
@@ -144,6 +173,15 @@ export async function discoverImplementations(
         stage: "discover.search", subject: query, fallback: "continuing with other queries",
       }));
     }
+  }
+
+  // Top the pool up from what the shares left behind, so a query returning few results
+  // costs the others nothing.
+  for (const { md, query } of overflow) {
+    if (byName.size >= opts.maxRepositories) break;
+    const key = md.ref.fullName.toLowerCase();
+    if (byName.has(key)) continue;
+    byName.set(key, { ref: md.ref, metadata: md, discoveredVia: [query] });
   }
 
   // Pull in fingerprint hits we have not already seen.

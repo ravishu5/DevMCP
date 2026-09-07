@@ -71,6 +71,20 @@ const PUBLISH_MARKERS: [RegExp, string][] = [
   [/\bcrate-type\b|\[lib\]/i, "cargo library target"],
   [/\bs\.summary\b|\bspec\.summary\b/i, "podspec"],
   [/\bproducts:\s*\[[\s\S]{0,200}\.library\(/i, "SwiftPM library product"],
+  /*
+   * Go, Maven, Composer, RubyGems and NuGet were absent, which made "unknown" the DEFAULT
+   * verdict for most server-side code — the manifests were already being fetched and parsed,
+   * only the markers were missing. `golang-migrate/migrate`, 18,900 stars and self-described
+   * "CLI and Golang library", was classified `mixed` off a Dockerfile alone.
+   *
+   * A `module` line in go.mod IS the library declaration: Go has no separate publish step,
+   * so an importable module path is the whole of it.
+   */
+  [/^\s*module\s+[\w./-]+/m, "Go module"],
+  [/<packaging>\s*(jar|bundle)\s*<\/packaging>|<groupId>[\s\S]{0,400}<artifactId>/i, "Maven artifact"],
+  [/"type"\s*:\s*"library"|"autoload"\s*:/i, "Composer library"],
+  [/\bGem::Specification\b|\bspec\.add_dependency\b/i, "gemspec"],
+  [/<GeneratePackageOnBuild>|<PackageId>|<IsPackable>\s*true/i, "NuGet package"],
 ];
 
 /** Application configuration in build files. */
@@ -80,6 +94,7 @@ const APP_MARKERS: [RegExp, string][] = [
   [/\[\[bin\]\]|\bsrc\/main\.rs\b/i, "cargo binary target"],
   [/\bexecutable\(/i, "SwiftPM executable product"],
   [/"bin"\s*:/i, "npm bin entry"],
+  [/<OutputType>\s*Exe\s*<\/OutputType>/i, "C# executable target"],
 ];
 
 /**

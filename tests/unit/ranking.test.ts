@@ -650,6 +650,62 @@ describe("deduplication (spec §19)", () => {
 
 // ---------------------------------------------------------------------------
 
+describe("a new repository has not proven it is maintained", () => {
+  const repo = (over: Record<string, unknown>) => ({
+    ref: refFromFullName("vinkurov/webhook-kit"), topics: [], description: "Verify webhook signatures",
+    stars: 0, forks: 0, watchers: 0, openIssues: 0,
+    isFork: false, archived: false, language: "TypeScript",
+    ...over,
+  });
+  const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+
+  it("caps a days-old repository below a perfect maintenance score", () => {
+    /*
+     * Scored on recency alone, a repository created 2026-08-08 and pushed 2026-08-10 with
+     * zero stars took a perfect 1.00 and beat stripe/stripe-node -- 4,503 stars, 52 test
+     * files, 55 commits in 90 days -- for a Stripe billing query. Every brand-new repository
+     * looks perfectly maintained on its second day.
+     */
+    const e = collectEvidence({
+      metadata: repo({ pushedAt: daysAgo(2), createdAt: daysAgo(4) }),
+      sources: ["github:metadata"],
+    });
+    expect(e.axes.maintenance.value).toBeLessThanOrEqual(0.45);
+    expect(e.axes.maintenance.observation).toMatch(/unproven/i);
+  });
+
+  it("leaves an established, actively maintained repository alone", () => {
+    const e = collectEvidence({
+      metadata: repo({
+        ref: refFromFullName("stripe/stripe-node"), stars: 4503,
+        pushedAt: daysAgo(3), createdAt: daysAgo(3600),
+      }),
+      sources: ["github:metadata"],
+    });
+    expect(e.axes.maintenance.value).toBe(1);
+    expect(e.axes.maintenance.observation).not.toMatch(/unproven/i);
+  });
+
+  it("lifts the ceiling as the project ages", () => {
+    const at = (ageDays: number) => collectEvidence({
+      metadata: repo({ pushedAt: daysAgo(2), createdAt: daysAgo(ageDays) }),
+      sources: ["github:metadata"],
+    }).axes.maintenance.value;
+    expect(at(10)).toBeLessThan(at(60));
+    expect(at(60)).toBeLessThan(at(200));
+    expect(at(200)).toBeLessThan(at(500));
+  });
+
+  it("never rescues a stale repository that happens to be old", () => {
+    // The age ceiling only ever lowers a score; it must not raise an abandoned one.
+    const e = collectEvidence({
+      metadata: repo({ pushedAt: daysAgo(1200), createdAt: daysAgo(3000) }),
+      sources: ["github:metadata"],
+    });
+    expect(e.axes.maintenance.value).toBeLessThan(0.15);
+  });
+});
+
 describe("excludeTerms separate implementing a protocol from observing it", () => {
   /*
    * Real metadata from skymansandy/wiretapKMP, which ranked FIRST for "WebSocket transport

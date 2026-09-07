@@ -21,7 +21,7 @@ import type {
   AgentFeature, ImplementationTask, ReuseStrategy, TargetStack,
 } from "../types/index.js";
 import { CAPABILITIES, CAPABILITY_BY_ID, findStackIdioms, type Capability } from "../knowledge/vocabulary.js";
-import { generateQueries } from "./query.js";
+import { generateQueries, generateQueriesDetailed } from "./query.js";
 
 export interface EnrichInput {
   features: AgentFeature[];
@@ -174,23 +174,37 @@ function toTask(
    * where our vocabulary was wrong or absent. When both are available they reinforce; when
    * they disagree, the agent read the requirement and we did not.
    */
-  const vocabularyQueries = cap
-    ? generateQueries({
+  // Runs without a capability match too, so a declared vendor still gets its SDK query:
+  // that shape needs only the vendor name and the language, not our vocabulary.
+  const generated = (cap || feature.mustMention?.length)
+    ? generateQueriesDetailed({
         feature: feature.name,
-        capabilityId: cap.id,
+        capabilityId: cap?.id,
         stack: ctx.stack,
         idioms: ctx.idioms,
         requirements: feature.requirements,
+        mustMention: feature.mustMention,
         limit: ctx.budget,
       })
     : [];
+  /*
+   * A declared vendor's SDK query outranks the generic feature-name query, because it is not
+   * vocabulary — it is the direct consequence of a hard requirement the agent stated.
+   *
+   * Ordering alone decided this. With two agent hints plus the generic query filling a
+   * budget of three, "Stripe TypeScript sdk" was generated and then sliced off the end of
+   * the list, and stripe/stripe-node stayed absent from all 58 candidates.
+   */
+  const vendorQueries = generated.filter((q) => q.shape === "vendor-sdk").map((q) => q.query);
+  const vocabularyQueries = generated.filter((q) => q.shape !== "vendor-sdk").map((q) => q.query);
 
   const language = ctx.stack?.language;
   const searchQueries = dedupe([
     ...(feature.searchHints ?? []),
+    ...vendorQueries,
     [feature.name, language].filter(Boolean).join(" "),
     ...vocabularyQueries,
-  ]).filter(Boolean).slice(0, Math.max(2, ctx.budget));
+  ]).filter(Boolean).slice(0, Math.max(2, ctx.budget + vendorQueries.length));
 
   // Checklist: the agent's requirements are ground truth for THIS project; the
   // capability's generic checklist fills gaps rather than overriding.

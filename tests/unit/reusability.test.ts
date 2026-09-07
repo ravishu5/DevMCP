@@ -223,6 +223,49 @@ describe("library vs application (reusability)", () => {
   });
 });
 
+describe("packaging markers outside the JVM and npm", () => {
+  /*
+   * Go, Maven, Composer, RubyGems and NuGet were absent, which made "unknown" the default
+   * verdict for most server-side code. The manifests were already fetched and parsed; only
+   * the markers were missing. golang-migrate/migrate -- 18,900 stars, self-described "CLI
+   * and Golang library" -- was classified `mixed` off its Dockerfile alone and lost to a
+   * 19-star repository.
+   */
+  const cases: [string, string, string[]][] = [
+    ["Go module", "module github.com/golang-migrate/migrate/v4\n\nrequire (\n)", ["go.mod", "Dockerfile"]],
+    ["Maven artifact", "<groupId>io.github.bucket4j</groupId>\n<artifactId>bucket4j-core</artifactId>", ["pom.xml"]],
+    ["Composer library", '{"name":"vendor/pkg","type":"library","autoload":{}}', ["composer.json"]],
+    ["gemspec", "Gem::Specification.new do |spec|\n  spec.add_dependency 'rack'\nend", ["lib.gemspec"]],
+    ["NuGet package", "<PackageId>Serilog</PackageId><IsPackable>true</IsPackable>", ["Lib.csproj"]],
+  ];
+
+  for (const [label, manifest, files] of cases) {
+    it(`recognises a ${label}`, () => {
+      const r = assessReusability({
+        metadata: md({ fullName: "some/lib", description: "A thing" }),
+        manifestContents: [manifest],
+        filePaths: files,
+      });
+      expect(r.signals.join(" ")).toContain(label);
+      expect(r.kind).toBe("library");
+    });
+  }
+
+  it("does not let a Dockerfile outweigh the go.mod that declares the library", () => {
+    const r = assessReusability({
+      metadata: md({
+        fullName: "golang-migrate/migrate",
+        description: "Database migrations. CLI and Golang library.",
+        topics: ["database", "migrations", "golang"],
+      }),
+      manifestContents: ["module github.com/golang-migrate/migrate/v4"],
+      filePaths: ["go.mod", "Dockerfile", "database/postgres/postgres.go"],
+    });
+    expect(r.kind).toBe("library");
+    expect(r.score).toBe(1);
+  });
+});
+
 describe("an application cannot be DIRECT_REUSE", () => {
   const base = {
     metadata: md({ fullName: "a/plants" }),

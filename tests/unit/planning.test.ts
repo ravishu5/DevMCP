@@ -339,3 +339,51 @@ describe("query generation", () => {
     expect(topic?.query).toMatch(/^topic:[a-z0-9-]+$/);
   });
 });
+
+describe("a declared vendor gets its own SDK query", () => {
+  /*
+   * A feature query cannot find the library that implements it. stripe/stripe-node is
+   * described "Node.js library for the Stripe API." -- no "webhook", no "subscription",
+   * no "billing" in its name, description or topics. Searching "Stripe webhooks Node" and
+   * "stripe subscriptions TypeScript" returned 58 candidates without it.
+   */
+  it("emits the BARE vendor name, because every added word narrows it away", () => {
+    const qs = generateQueriesDetailed({
+      feature: "Stripe subscription billing with webhook handling",
+      capabilityId: "payments",
+      stack: { language: "TypeScript" },
+      mustMention: ["Stripe"],
+      limit: 6,
+    });
+    const vendor = qs.filter((q) => q.shape === "vendor-sdk").map((q) => q.query);
+    /*
+     * GitHub ANDs every term and the provider already appends `language:`. "Stripe
+     * TypeScript sdk" therefore requires "typescript" AND "sdk" in the name, description or
+     * topics -- which stripe-node has in neither. `stripe language:TypeScript` returns it
+     * first.
+     */
+    expect(vendor).toContain("Stripe");
+    expect(vendor.join(" ")).not.toMatch(/typescript/i);
+  });
+
+  it("ranks the vendor query ahead of the generic feature-name query", () => {
+    // Ordering alone decided this: with two agent hints plus the generic query filling a
+    // budget of three, the vendor query was generated and then sliced off the end.
+    const qs = generateQueriesDetailed({
+      feature: "Stripe subscription billing with webhook handling",
+      capabilityId: "payments",
+      stack: { language: "TypeScript" },
+      mustMention: ["Stripe"],
+      limit: 3,
+    }).map((q) => q.shape);
+    expect(qs).toContain("vendor-sdk");
+  });
+
+  it("emits nothing when no vendor was declared", () => {
+    const qs = generateQueriesDetailed({
+      feature: "Background job queue", capabilityId: "queue",
+      stack: { language: "TypeScript" }, limit: 6,
+    });
+    expect(qs.some((q) => q.shape === "vendor-sdk")).toBe(false);
+  });
+});

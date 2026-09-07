@@ -454,6 +454,7 @@ function buildCompositeTask(input: {
         stack: input.language ? { language: input.language } : undefined,
         idioms: findStackIdioms(input.language, input.platform, input.framework),
         requirements: input.callerRequirements,
+        mustMention: primary.mustMention,
         limit: input.queryBudget,
       })
     : primary.searchQueries;

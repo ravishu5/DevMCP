@@ -26,13 +26,15 @@ export interface QueryGenInput {
   stack?: TargetStack;
   idioms?: StackIdioms;
   requirements?: string[];
+  /** Vendors the agent declared mandatory. See AgentFeature.mustMention. */
+  mustMention?: string[];
   limit?: number;
 }
 
 export interface GeneratedQuery {
   query: string;
   /** Which shape produced it — used to keep the mix diverse and to explain discovery. */
-  shape: "stack-idiom" | "domain-term" | "topic" | "generic" | "requirement";
+  shape: "stack-idiom" | "domain-term" | "topic" | "vendor-sdk" | "generic" | "requirement";
   /** Expected precision, 0–1. Higher-precision queries are issued first. */
   precision: number;
 }
@@ -84,7 +86,35 @@ export function generateQueriesDetailed(input: QueryGenInput): GeneratedQuery[] 
     if (q) out.push({ query: langHint ? `${q} ${langHint}` : q, shape: "requirement", precision: 0.6 });
   }
 
-  // Shape 5 — the obvious query.
+  /*
+   * Shape 5 — the vendor's own SDK.
+   *
+   * A feature query cannot find the library that implements it. `stripe/stripe-node` is
+   * described "Node.js library for the Stripe API." — no "webhook", no "subscription", no
+   * "billing" anywhere in its name, description or topics. Searching "Stripe webhooks Node"
+   * and "stripe subscriptions TypeScript" returned 58 candidates and the official SDK was
+   * not among them; the top three were 2-star wrappers that happened to name the feature.
+   *
+   * An SDK is described by what it IS, not by everything it contains. So when the agent has
+   * declared a vendor mandatory, ask for the vendor directly.
+   */
+  for (const vendor of (input.mustMention ?? []).slice(0, 2)) {
+    const v = vendor.trim();
+    if (!v) continue;
+    /*
+     * The BARE vendor name, with no descriptive suffix.
+     *
+     * GitHub ANDs every term, and the provider already appends `language:`. "Stripe
+     * TypeScript sdk" therefore requires the words "typescript" AND "sdk" to appear in the
+     * name, description or topics — stripe-node's description is "Node.js library for the
+     * Stripe API.", so it matched neither and stayed absent. `stripe language:TypeScript`
+     * returns it first. Every added word narrows away the thing we are looking for.
+     */
+    out.push({ query: v, shape: "vendor-sdk", precision: 0.9 });
+    out.push({ query: `${v} sdk`, shape: "vendor-sdk", precision: 0.75 });
+  }
+
+  // Shape 6 — the obvious query.
   //
   // Only when the feature text is the CALLER'S OWN WORDS. A generated capability label
   // ("Local persistence", "Resumable transfer") is a category name, not something anyone
@@ -117,7 +147,7 @@ function selectDiverse(queries: GeneratedQuery[], limit: number): GeneratedQuery
   for (const list of byShape.values()) list.sort((a, b) => b.precision - a.precision);
 
   // Shapes in descending expected value.
-  const shapeOrder: GeneratedQuery["shape"][] = ["stack-idiom", "domain-term", "topic", "requirement", "generic"];
+  const shapeOrder: GeneratedQuery["shape"][] = ["vendor-sdk", "stack-idiom", "domain-term", "topic", "requirement", "generic"];
   const picked: GeneratedQuery[] = [];
   const seen = new Set<string>();
 
