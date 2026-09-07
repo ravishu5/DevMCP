@@ -156,3 +156,62 @@ describe("mustMention — vendors are hard requirements", () => {
     expect(r.tasks[0]!.mustMention).toBeUndefined();
   });
 });
+
+describe("fullstack capabilities do not hijack neighbouring phrases", () => {
+  /*
+   * Added after live testing across Go, Node, Java/Spring and Python/Django. Each new
+   * capability brings triggers that sit close to an existing one -- "email" next to
+   * auth-session, "metrics" next to analytics, "cron" next to background-execution -- and a
+   * trigger that steals a phrase is worse than a missing capability, because it injects
+   * confidently wrong search vocabulary.
+   */
+  const cases: [string, string][] = [
+    ["Email and password sessions", "auth-session"],
+    ["Transactional email notifications", "email"],
+    ["Database schema migrations with rollback", "db-migrations"],
+    ["Multi-tenant data isolation", "multi-tenancy"],
+    ["Distributed tracing with OpenTelemetry", "observability"],
+    ["Analytics event tracking", "analytics"],
+    ["GraphQL API with resolvers", "graphql"],
+    ["Scheduled report generation with cron", "scheduling"],
+    ["Feature flags with percentage rollout", "feature-flags"],
+    ["Role-based access control", "authorization"],
+    ["Audit log of record changes", "audit-log"],
+    ["Full-text search with faceting", "search-indexing"],
+    ["Rate limiting per API key", "rate-limiting"],
+    ["Secure credential storage", "secure-storage"],
+  ];
+
+  for (const [name, expected] of cases) {
+    it(`maps "${name}" to ${expected}`, () => {
+      const r = enrichAgentFeatures({ features: [{ name }], totalQueryBudget: 3 });
+      expect(r.tasks[0]?.featureId).toBe(expected);
+    });
+  }
+});
+
+describe("feature ids survive truncation", () => {
+  const idFor = (name: string) =>
+    enrichAgentFeatures({ features: [{ name }], totalQueryBudget: 2 }).tasks[0]?.featureId ?? "";
+
+  it("cuts on a word boundary rather than mid-word", () => {
+    // Was "save-game-serialization-with-versioned-m" -- a blunt 40-character cut.
+    const id = idFor("Save game serialization with versioned migrations and corruption recovery");
+    expect(id).not.toMatch(/-$/);
+    expect(id.split("-").every((part) => part.length > 0)).toBe(true);
+  });
+
+  it("keeps two features with a long shared prefix distinct", () => {
+    /*
+     * This value is a knowledge-base key. Any two features sharing a 40-character prefix
+     * used to collide silently and pollute each other's fingerprints.
+     */
+    const a = idFor("Deterministic lockstep multiplayer netcode for combat");
+    const b = idFor("Deterministic lockstep multiplayer netcode for physics");
+    expect(a).not.toBe(b);
+  });
+
+  it("leaves a short name completely alone", () => {
+    expect(idFor("Multi-tenant data isolation")).toBe("multi-tenancy");
+  });
+});

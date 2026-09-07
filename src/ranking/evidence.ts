@@ -509,7 +509,14 @@ function dependencySimplicity(input: EvidenceInput): EvidenceSignal | null {
   const s = input.integrationSurface;
   if (!s) return null;
   const n = s.dependencyCount;
-  const value = n <= 3 ? 1 : n >= 25 ? 0.05 : clamp(1 - (n - 3) / 22);
+  /*
+   * Logarithmic, because the old linear ramp hit its 0.05 floor at 25 dependencies and
+   * stopped discriminating exactly where server-side libraries live: golang-migrate (38,
+   * nearly all optional database drivers) scored identically to a genuinely bloated
+   * 200-dependency project. Doubling the count should cost a constant amount, not fall off
+   * a cliff — 3 deps scores 1.00, 10 scores 0.60, 25 scores 0.29, 60 reaches 0.
+   */
+  const value = n <= 3 ? 1 : clamp(1 - Math.log10(n / 3) / Math.log10(20));
   return {
     value, confidence: 0.8, source: "manifests",
     observation: `${n} runtime dependenc${n === 1 ? "y" : "ies"}`,

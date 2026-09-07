@@ -355,6 +355,128 @@ export const CAPABILITIES: Capability[] = [
     searchTerms: ["i18n library", "pluralization rules", "locale detection", "RTL layout support"],
     checklist: ["string catalogues", "pluralisation", "locale fallback", "date/number formatting"],
   },
+
+  // --- fullstack / server-side ----------------------------------------------
+  //
+  // Added after live testing across Go, Node, Java/Spring and Python/Django. These queries
+  // all WORKED before, through the agent-hint path, but got no enrichment: no domain search
+  // terms, no completeness checklist, and a generated slug for a capability id. The
+  // checklists are the highest-value part — they are what makes a ranking mean anything.
+  {
+    id: "db-migrations", label: "Database migrations", category: "persistence", reuseValue: "high",
+    foundational: true,
+    triggers: ["migration", "migrations", "schema change", "schema version", "ddl", "alter table"],
+    searchTerms: ["database migration tool", "schema migration versioned", "up down migrations"],
+    checklist: [
+      "up and down migrations", "version tracking table", "transactional DDL where supported",
+      "ordering and conflict detection", "dry run or plan output",
+    ],
+    topics: ["database-migrations", "migrations"],
+  },
+  {
+    id: "orm", label: "ORM / query builder", category: "persistence", reuseValue: "high",
+    triggers: ["orm", "query builder", "data mapper", "active record", "entity mapping"],
+    searchTerms: ["orm query builder", "type-safe sql", "data mapper library"],
+    checklist: [
+      "typed schema definition", "relations and eager loading", "transactions",
+      "raw SQL escape hatch", "connection pooling",
+    ],
+    implies: ["persistence"],
+  },
+  {
+    id: "multi-tenancy", label: "Multi-tenancy", category: "persistence", reuseValue: "high",
+    triggers: ["multi tenant", "multitenant", "tenant isolation", "row level security", "per tenant"],
+    searchTerms: ["multi tenant data isolation", "row level security", "schema per tenant"],
+    checklist: [
+      "tenant resolution from request", "per-tenant data isolation", "cross-tenant leak prevention",
+      "migrations across tenants", "tenant-scoped queries by default",
+    ],
+    implies: ["authorization"],
+    topics: ["multi-tenancy", "multitenancy"],
+  },
+  {
+    id: "observability", label: "Observability / tracing", category: "analytics", reuseValue: "high",
+    triggers: [
+      "observability", "tracing", "distributed trace", "opentelemetry", "metrics", "structured logging", "apm",
+    ],
+    searchTerms: ["opentelemetry instrumentation", "distributed tracing", "structured logging library"],
+    checklist: [
+      "trace context propagation", "span creation and attributes", "metrics export",
+      "structured log correlation", "sampling control",
+    ],
+    narrows: ["analytics"],
+    topics: ["opentelemetry", "observability"],
+  },
+  {
+    id: "graphql", label: "GraphQL API", category: "networking", reuseValue: "high",
+    triggers: ["graphql", "resolver", "schema stitching", "federation", "apollo"],
+    searchTerms: ["graphql server", "graphql schema code first", "dataloader batching"],
+    checklist: [
+      "schema definition", "resolver wiring", "N+1 batching (dataloader)",
+      "error handling and partial results", "subscriptions or live queries",
+    ],
+    topics: ["graphql"],
+  },
+  {
+    id: "webhooks", label: "Webhook delivery and receipt", category: "networking", reuseValue: "high",
+    triggers: ["webhook", "webhooks", "callback url", "event delivery", "signature verification"],
+    searchTerms: ["webhook signature verification", "webhook delivery retry", "idempotent event handling"],
+    checklist: [
+      "signature verification", "idempotent handling of repeats", "retry with backoff",
+      "delivery log and replay", "timeout and failure isolation",
+    ],
+    implies: ["retry"],
+    topics: ["webhooks"],
+  },
+  {
+    id: "email", label: "Transactional email", category: "messaging", reuseValue: "high",
+    triggers: ["email", "smtp", "transactional mail", "mailer", "email template"],
+    searchTerms: ["transactional email library", "smtp client", "email templating mjml"],
+    checklist: [
+      "provider abstraction", "HTML and plain-text parts", "template rendering",
+      "bounce and failure handling", "attachment support",
+    ],
+    topics: ["email", "smtp"],
+  },
+  {
+    id: "scheduling", label: "Scheduled and recurring jobs", category: "background", reuseValue: "high",
+    triggers: ["cron", "scheduled job", "recurring task", "scheduler", "periodic job"],
+    searchTerms: ["cron scheduler library", "distributed scheduled jobs", "job scheduling leader election"],
+    checklist: [
+      "cron expression parsing", "missed-run handling", "single execution across instances",
+      "timezone correctness", "job history",
+    ],
+    narrows: ["background-execution"],
+    topics: ["cron", "scheduler"],
+  },
+  {
+    id: "feature-flags", label: "Feature flags", category: "infra", reuseValue: "high",
+    triggers: ["feature flag", "feature toggle", "kill switch", "gradual rollout", "a/b test"],
+    searchTerms: ["feature flag library", "feature toggle sdk", "percentage rollout targeting"],
+    checklist: [
+      "boolean and multivariate flags", "targeting rules", "percentage rollout",
+      "local evaluation without a round trip", "safe default when unavailable",
+    ],
+    topics: ["feature-flags", "feature-toggles"],
+  },
+  {
+    id: "api-gateway", label: "API gateway / reverse proxy", category: "networking", reuseValue: "medium",
+    triggers: ["api gateway", "reverse proxy", "ingress", "load balancer", "service mesh"],
+    searchTerms: ["api gateway", "reverse proxy library", "http router middleware"],
+    checklist: [
+      "route matching", "middleware chain", "upstream health checks",
+      "request and response transformation", "TLS termination",
+    ],
+  },
+  {
+    id: "audit-log", label: "Audit logging", category: "persistence", reuseValue: "medium",
+    triggers: ["audit log", "audit trail", "change history", "event sourcing", "who changed what"],
+    searchTerms: ["audit trail library", "change data capture", "event sourcing"],
+    checklist: [
+      "immutable append-only record", "actor and timestamp capture", "before and after values",
+      "queryable history", "tamper evidence",
+    ],
+  },
   {
     id: "testing-infra", label: "Test infrastructure", category: "testing", reuseValue: "medium",
     triggers: ["test harness", "fixtures", "mocking", "e2e test", "test infrastructure"],

@@ -280,8 +280,36 @@ function containsWord(haystack: string, needle: string): boolean {
   return ` ${haystack} `.includes(` ${needle} `);
 }
 
+/**
+ * A stable, readable id for a feature the vocabulary does not recognise.
+ *
+ * This value is a knowledge-base key and a capability tag, so it has to survive being
+ * truncated. A blunt 40-character cut produced ids that were both ugly and unsafe:
+ * "save-game-serialization-with-versioned-m" and
+ * "deterministic-lockstep-multiplayer-netco" are mid-word, and any two features sharing a
+ * 40-character prefix would collide silently and pollute each other's fingerprints.
+ *
+ * Cut on a word boundary, and when anything was dropped, append a short digest of the FULL
+ * name so distinct features keep distinct ids.
+ */
 function slug(name: string): string {
-  return normalise(name).replace(/\s+/g, "-").slice(0, 40) || "feature";
+  const full = normalise(name).replace(/\s+/g, "-");
+  if (!full) return "feature";
+  if (full.length <= 40) return full;
+
+  const cut = full.slice(0, 32);
+  const head = (cut.includes("-") ? cut.slice(0, cut.lastIndexOf("-")) : cut).replace(/-+$/, "");
+  return `${head || cut}-${digest(full)}`;
+}
+
+/** Short, stable, non-cryptographic digest — only needs to separate ids, not resist attack. */
+function digest(text: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36).slice(0, 6);
 }
 
 function dedupe<T>(items: T[]): T[] {
