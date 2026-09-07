@@ -111,6 +111,24 @@ describe("library vs application (reusability)", () => {
     expect(r.reason).toMatch(/conflict|unclear/i);
   });
 
+  it("will not promise DIRECT_REUSE when the classifier found no evidence at all", () => {
+    /*
+     * "unknown" is the DEFAULT outside the JVM and npm ecosystems: the packaging markers
+     * cover Gradle, npm, PyPI, Cargo, CocoaPods and SwiftPM, but not NuGet, Unity packages
+     * or Godot plugins. Grimbar-Interactive/unity-saves came back as the top result for
+     * "Save game serialization with versioned migrations" at DIRECT_REUSE -- "depend on it
+     * or vendor the relevant symbols" -- with zero signals and 0.10 confidence.
+     */
+    const r = assessReuse({
+      metadata: md({ fullName: "Grimbar-Interactive/unity-saves", language: "C#" }),
+      license: analyzeLicense({ raw: { spdx: "MIT" }, repository: "Grimbar-Interactive/unity-saves" }),
+      stackMatch: 1, architectureMatch: 1,
+      reusability: { kind: "unknown", score: 0.5, confidence: 0.1, signals: [] },
+    });
+    expect(r.mode).toBe("ADAPT");
+    expect(r.reason).toMatch(/unknown whether/i);
+  });
+
   it("still allows DIRECT_REUSE for a repository classified as a library", () => {
     const r = assessReuse({
       metadata: md({ fullName: "square/okhttp", description: "HTTP client", topics: ["http"] }),

@@ -128,15 +128,23 @@ export function assessReuse(input: ReuseAssessmentInput): ReuseAssessment {
    * — a MUD game with a websocket layer, MIT-licensed and actively maintained — cleared every
    * other gate and was recommended for DIRECT_REUSE as a WebSocket transport.
    *
+   * "unknown" is the same hole reached from the other side: the classifier ran and found no
+   * evidence at all. It is the DEFAULT outcome outside the JVM and npm ecosystems, because
+   * the packaging markers cover Gradle, npm, PyPI, Cargo, CocoaPods and SwiftPM but not
+   * NuGet, Unity packages or Godot plugins — so `Grimbar-Interactive/unity-saves` was the
+   * top result for a save-system query at DIRECT_REUSE with zero signals and 0.10 confidence.
+   *
    * ADAPT is the honest verdict under uncertainty: it says lift the logic and reshape it,
    * which is correct whether or not a dependable artifact turns out to exist.
    */
-  if (kind === "mixed") {
+  if (kind === "mixed" || kind === "unknown") {
     return {
       mode: "ADAPT",
-      reason:
-        "Library and application signals conflict, so it is unclear whether there is an artifact to depend on."
-        + `${input.reusability?.signals.length ? ` Classified from: ${input.reusability.signals.slice(0, 2).join("; ")}.` : ""}`,
+      reason: kind === "mixed"
+        ? "Library and application signals conflict, so it is unclear whether there is an artifact to depend on."
+          + `${input.reusability?.signals.length ? ` Classified from: ${input.reusability.signals.slice(0, 2).join("; ")}.` : ""}`
+        : "Nothing in this repository identifies it as a library or an application, so it is unknown whether "
+          + "there is an artifact to depend on.",
       guidance:
         "Lift the core logic and reshape it to your architecture rather than adding a dependency. Call "
         + "analyze_repository if you need to confirm whether it publishes a consumable artifact.",
