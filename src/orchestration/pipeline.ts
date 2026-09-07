@@ -56,6 +56,8 @@ export interface DiscoverRequest {
   capability?: string;
   /** Terms a candidate must reference. See AgentFeature.mustMention. */
   mustMention?: string[];
+  /** Terms that disqualify a candidate. See AgentFeature.excludeTerms. */
+  excludeTerms?: string[];
   /**
    * Run symbol-level analysis (code index + minimal implementation set).
    *
@@ -124,7 +126,9 @@ export async function runDiscovery(
    * Without hints we fall back to the rule-based decomposer, which is what the CLI and
    * unhinted clients get.
    */
-  const agentDirected = Boolean(req.searchHints?.length || req.capability || req.mustMention?.length);
+  const agentDirected = Boolean(
+    req.searchHints?.length || req.capability || req.mustMention?.length || req.excludeTerms?.length,
+  );
 
   let task: ImplementationTask;
   let decomposed: ReturnType<typeof decomposeRequirement> | undefined;
@@ -137,6 +141,7 @@ export async function runDiscovery(
         searchHints: req.searchHints,
         capability: req.capability,
         mustMention: req.mustMention,
+        excludeTerms: req.excludeTerms,
       }],
       stack: target,
       totalQueryBudget: config.discovery.maxQueriesPerFeature,
@@ -173,6 +178,7 @@ export async function runDiscovery(
       ),
     });
     if (req.mustMention?.length) task.mustMention = req.mustMention;
+    if (req.excludeTerms?.length) task.excludeTerms = req.excludeTerms;
   }
 
   // Resolve the code index only when symbol analysis was asked for — connecting spawns a
@@ -1104,6 +1110,7 @@ export async function runPlan(
         searchHints: task.searchQueries,
         capability: task.featureId,
         mustMention: task.mustMention,
+        excludeTerms: task.excludeTerms,
         language: req.language, framework: req.framework, platform: req.platform,
         distribution: req.distribution,
         // Use the configured depth, not a hardcoded 3. Too few deep slots and the cheap

@@ -26,6 +26,124 @@ describe("library vs application (reusability)", () => {
     expect(r.signals.join(" ")).toMatch(/maven-publish|publishing/i);
   });
 
+  it("does not penalise a library for the applicationId in its demo module", () => {
+    /*
+     * Regression: VinsonGuo/ReconnectWebSocketWrapper ships `lib` (the library) plus `app`
+     * (a runnable demo). The demo has an applicationId and the Android application plugin,
+     * because a demo IS an app — and counting those as application evidence dropped the
+     * repository to "mixed", skipping the library treatment. It finished 5th for
+     * "WebSocket transport with reconnection", below a MUD game and a chat sample that
+     * merely mention websockets in their topics.
+     */
+    const r = assessReusability({
+      metadata: md({
+        fullName: "VinsonGuo/ReconnectWebSocketWrapper",
+        description: "A WebSocket wrapper with automatic reconnection for Android",
+        topics: ["websocket", "okhttp", "android"],
+      }),
+      manifestContents: [
+        `plugins { id("com.android.application") }\nandroid { defaultConfig { applicationId "com.demo" } }`,
+      ],
+      filePaths: ["build.gradle.kts", "lib/build.gradle.kts", "app/build.gradle.kts"],
+    });
+    expect(r.kind).toBe("library");
+    expect(r.signals.join(" ")).toMatch(/alongside a demo/i);
+    expect(r.signals.join(" ")).not.toMatch(/applicationId/i);
+  });
+
+  it("still counts applicationId when the app is the whole repository", () => {
+    // The suppression above must not fire when there is no library module to explain it.
+    const r = assessReusability({
+      metadata: md({ fullName: "zedlabs/WallPortal", description: "Wallpaper app", topics: ["android"] }),
+      manifestContents: [`android { defaultConfig { applicationId "com.zedlabs.wallportal" } }`],
+      filePaths: ["build.gradle", "app/build.gradle"],
+    });
+    expect(r.kind).toBe("application");
+    expect(r.signals.join(" ")).toMatch(/applicationId/i);
+  });
+
+  it("treats composeApp as the application module it is", () => {
+    /*
+     * `composeApp` is what the JetBrains Kotlin Multiplatform wizard names the APPLICATION
+     * module. Because the demo-module list only knew `androidApp`/`iosApp`/`desktopApp`,
+     * every KMP sample from that wizard scored a library point: M0bileDev/ChirpAppDesktopKMP,
+     * a chat demo, was classified "library" with a perfect 1.00 reusability score while
+     * simultaneously being flagged "described as an app/demo/template".
+     */
+    const r = assessReusability({
+      metadata: md({
+        fullName: "M0bileDev/ChirpAppDesktopKMP",
+        description: "Chat app with websocket reconnect for Android and desktop",
+        topics: ["websocket", "ktor", "android"],
+      }),
+      filePaths: ["build.gradle.kts", "composeApp/build.gradle.kts", "gradle/libs.versions.toml"],
+    });
+    expect(r.kind).not.toBe("library");
+    expect(r.signals.join(" ")).toMatch(/only module is the application/i);
+  });
+
+  it("keeps a genuine KMP library module distinct from its app modules", () => {
+    const r = assessReusability({
+      metadata: md({ fullName: "someone/kmp-networking", description: "Networking library", topics: ["library"] }),
+      filePaths: [
+        "build.gradle.kts", "shared/build.gradle.kts",
+        "androidApp/build.gradle.kts", "iosApp/build.gradle.kts",
+      ],
+    });
+    expect(r.kind).toBe("library");
+    expect(r.signals.join(" ")).toMatch(/shared/);
+  });
+
+  it("will not promise DIRECT_REUSE for a repository it could not classify", () => {
+    /*
+     * roomsmith-games/NeoMud is a MUD game with a websocket layer: MIT, actively maintained,
+     * Kotlin — it cleared every gate and was recommended for DIRECT_REUSE ("depend on it or
+     * vendor the relevant symbols") as a WebSocket transport. DIRECT_REUSE asserts there is
+     * an artifact to depend on, and "mixed" is exactly the verdict meaning we cannot tell.
+     */
+    const r = assessReuse({
+      metadata: md({ fullName: "roomsmith-games/NeoMud", description: "A MUD engine", topics: ["websocket", "ktor"] }),
+      license: analyzeLicense({ raw: { spdx: "MIT" }, repository: "roomsmith-games/NeoMud" }),
+      stackMatch: 1, architectureMatch: 1,
+      reusability: { kind: "mixed", score: 0.6, confidence: 0.6, signals: ["+ version catalog", "- Dockerfile"] },
+    });
+    expect(r.mode).toBe("ADAPT");
+    expect(r.reason).toMatch(/conflict|unclear/i);
+  });
+
+  it("still allows DIRECT_REUSE for a repository classified as a library", () => {
+    const r = assessReuse({
+      metadata: md({ fullName: "square/okhttp", description: "HTTP client", topics: ["http"] }),
+      license: analyzeLicense({ raw: { spdx: "Apache-2.0" }, repository: "square/okhttp" }),
+      stackMatch: 1, architectureMatch: 1,
+      reusability: { kind: "library", score: 1, confidence: 0.9, signals: ["+ maven-publish plugin"] },
+    });
+    expect(r.mode).toBe("DIRECT_REUSE");
+  });
+
+  it("does not read a full-stack app's deployable targets as library modules", () => {
+    /*
+     * woods-marshes/chat-multiplatform is a full-stack chat demo: a Compose app plus
+     * `server` and `web` modules. Neither is demo-NAMED, so both counted as library modules,
+     * which in turn suppressed the applicationId signal and floated the whole repository to
+     * first place for "WebSocket transport with reconnection" at DIRECT_REUSE.
+     */
+    const r = assessReusability({
+      metadata: md({
+        fullName: "woods-marshes/chat-multiplatform",
+        description: "Chat with websocket for Android, desktop and web",
+        topics: ["android", "ktor", "kotlin"],
+      }),
+      manifestContents: [`android { defaultConfig { applicationId "com.chat" } }`],
+      filePaths: [
+        "build.gradle.kts", "composeApp/build.gradle.kts",
+        "server/build.gradle.kts", "web/build.gradle.kts", "Dockerfile",
+      ],
+    });
+    expect(r.kind).not.toBe("library");
+    expect(r.signals.join(" ")).toMatch(/applicationId/i);
+  });
+
   it("recognises an Android application from applicationId", () => {
     // Regression: a plant-care app ranked FIRST for "local persistence", because an app
     // using Room genuinely implements schemas, DAOs, migrations and transactional writes.

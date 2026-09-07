@@ -79,6 +79,14 @@ const TOOLS: Tool[] = [
             "Vendors or products a candidate MUST reference, e.g. ['Stripe']. Hard requirements, not preferences — " +
             "without this, asking for Stripe payments returns Adyen and Braintree.",
         },
+        exclude_terms: {
+          type: "array", items: { type: "string" },
+          description:
+            "Terms that DISQUALIFY a candidate when they appear in its name, description or topics, "
+            + "e.g. ['inspector','debugging tool','tutorial']. The counterpart to must_mention: asking for a "
+            + "WebSocket transport returns network-inspection tools first, because they genuinely declare "
+            + "websocket topics. Use it to separate 'library that does X' from 'tool that observes X'.",
+        },
         requirements: {
           type: "array", items: { type: "string" },
           description:
@@ -236,6 +244,14 @@ const TOOLS: Tool[] = [
                   "Hard requirements, not preferences — without this, asking for Stripe payments returns Adyen and " +
                   "Braintree, which are about payments but are not what was asked for.",
               },
+              excludeTerms: {
+                type: "array", items: { type: "string" },
+                description:
+                  "Terms that DISQUALIFY a candidate when they appear in its name, description or topics, "
+            + "e.g. ['inspector','debugging tool','tutorial']. The counterpart to must_mention: asking for a "
+            + "WebSocket transport returns network-inspection tools first, because they genuinely declare "
+            + "websocket topics. Use it to separate 'library that does X' from 'tool that observes X'.",
+              },
               dependsOn: { type: "array", items: { type: "string" }, description: "Names of features this one builds on." },
               reuse: { type: "string", enum: ["search", "build-from-scratch"], description: "Whether searching is worthwhile." },
             },
@@ -334,6 +350,7 @@ const SCHEMAS = {
     search_hints: z.array(z.string()).optional(),
     capability: z.string().optional(),
     must_mention: z.array(z.string()).optional(),
+    exclude_terms: z.array(z.string()).optional(),
     ...stackSchema,
     max_repositories: z.number().int().positive().max(100).optional(),
     max_deep_analysis: z.number().int().positive().max(20).optional(),
@@ -376,6 +393,7 @@ const SCHEMAS = {
       searchHints: z.array(z.string()).optional(),
       capability: z.string().optional(),
       mustMention: z.array(z.string()).optional(),
+      excludeTerms: z.array(z.string()).optional(),
       dependsOn: z.array(z.string()).optional(),
       reuse: z.enum(["search", "build-from-scratch"]).optional(),
     })).max(30).optional(),
@@ -457,6 +475,7 @@ async function dispatch(
         searchHints: args.search_hints as string[] | undefined,
         capability: args.capability as string | undefined,
         mustMention: args.must_mention as string[] | undefined,
+        excludeTerms: args.exclude_terms as string[] | undefined,
         language: args.language as string | undefined,
         framework: args.framework as string | undefined,
         platform: args.platform as string | undefined,

@@ -343,6 +343,23 @@ export interface AgentFeature {
    * catches the first also catches the second. You know which words name a product.
    */
   mustMention?: string[];
+  /**
+   * Terms that disqualify a candidate when they appear in its name, description or topics.
+   *
+   * The negative counterpart to `mustMention`, and needed for the same reason. Asked for a
+   * "WebSocket transport with reconnection", the system returned `wiretapKMP` first: a
+   * network *inspection* tool that genuinely declares the topics `websocket`,
+   * `websocket-inspector` and `okhttp`. Every positive signal was correct. Nothing in the
+   * metadata could express that inspecting a protocol is not implementing it.
+   *
+   * Matched against the declaration only — name, description and topics — never the README.
+   * A real WebSocket client's README may well discuss debugging; only a repository that
+   * describes *itself* as a debugging tool is one.
+   *
+   * Declared, never inferred. The distinction between "tool that observes X" and "library
+   * that does X" is a domain judgement, and you are the one holding the requirement.
+   */
+  excludeTerms?: string[];
   /** Names of other features this one depends on. Drives build order. */
   dependsOn?: string[];
   /** Whether the agent thinks reuse is worth pursuing here. */
@@ -382,6 +399,8 @@ export interface ImplementationTask {
   searchQueries: string[];
   /** Terms a candidate must reference; see AgentFeature.mustMention. */
   mustMention?: string[];
+  /** Terms that disqualify a candidate; see AgentFeature.excludeTerms. */
+  excludeTerms?: string[];
   /** Why this strategy was chosen — surfaced so the agent can override it. */
   rationale: string;
   /** Relative discovery budget, 0-1. Foundational/high-reuse features get more quota. */

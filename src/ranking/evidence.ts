@@ -135,6 +135,25 @@ function namedProducts(task: { feature: string; mustMention?: string[] }): strin
     .filter((w) => w.length >= 3 && !NOT_A_PRODUCT.has(w));
 }
 
+/**
+ * Terms that disqualify a candidate, matched against its declaration only.
+ *
+ * See AgentFeature.excludeTerms for why this cannot be inferred. The scale is deliberately
+ * harsher than the mustMention miss (0.35): a missing product term means "may be the wrong
+ * product", while a present exclusion term means "is the wrong KIND of thing". The candidate
+ * stays visible — a network inspector is a legitimate answer to a different question — but
+ * it can no longer outrank an implementation.
+ */
+function exclusionHits(
+  task: { excludeTerms?: string[] },
+  declared: string,
+): string[] {
+  if (!task.excludeTerms?.length) return [];
+  return task.excludeTerms
+    .map((t) => t.toLowerCase().trim())
+    .filter((t) => t.length > 0 && declared.includes(t));
+}
+
 function featureRelevance(input: EvidenceInput): EvidenceSignal | null {
   const task = input.task;
   if (!task) return null;
@@ -180,12 +199,38 @@ function featureRelevance(input: EvidenceInput): EvidenceSignal | null {
    */
   const products = namedProducts(task);
   if (products.length) {
-    const searchable = `${md.ref.fullName} ${nameText} ${topicText} ${bodyText}`.toLowerCase();
-    const missing = products.filter((p) => !searchable.includes(p));
-    if (missing.length === products.length) {
-      score *= 0.35;
-      evidence.push(`does not mention ${products.join(" or ")}, which the feature names`);
+    /*
+     * WHERE the term appears decides how much it counts.
+     *
+     * Name, description and topics are DECLARATIVE — they say what a repository is. A
+     * README mention is incidental: `wiretapKMP` is a network-inspection tool whose README
+     * mentions websockets because it inspects them, and a flat substring search over the
+     * README let it satisfy mustMention:["websocket"] and outrank an actual WebSocket
+     * client. Requiring the term in the declaration, and treating a README-only mention as
+     * partial credit, separates "this is a WebSocket library" from "this talks about
+     * WebSockets".
+     */
+    const declared = `${md.ref.fullName} ${nameText} ${topicText}`.toLowerCase();
+    const inBody = bodyText.toLowerCase();
+
+    const declaredHits = products.filter((p) => declared.includes(p));
+    const bodyOnlyHits = products.filter((p) => !declared.includes(p) && inBody.includes(p));
+
+    if (declaredHits.length === 0) {
+      if (bodyOnlyHits.length > 0) {
+        score *= 0.6;
+        evidence.push(`mentions ${bodyOnlyHits.join(", ")} only in its README, not in its name, description or topics`);
+      } else {
+        score *= 0.35;
+        evidence.push(`does not mention ${products.join(" or ")}, which the feature names`);
+      }
     }
+  }
+
+  const excluded = exclusionHits(task, `${md.ref.fullName} ${nameText} ${topicText}`.toLowerCase());
+  if (excluded.length) {
+    score *= 0.2;
+    evidence.push(`describes itself as ${excluded.join(", ")}, which the feature excludes`);
   }
 
   return {

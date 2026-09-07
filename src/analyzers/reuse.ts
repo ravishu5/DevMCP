@@ -119,6 +119,33 @@ export function assessReuse(input: ReuseAssessmentInput): ReuseAssessment {
     };
   }
 
+  /*
+   * Gate 3b: "mixed" means we could not tell, and DIRECT_REUSE is an assertion.
+   *
+   * DIRECT_REUSE tells the agent to depend on the artifact or vendor its symbols. That is a
+   * claim about there BEING an artifact, and `mixed` is precisely the verdict we return when
+   * the library and application signals conflict and we do not know. `roomsmith-games/NeoMud`
+   * — a MUD game with a websocket layer, MIT-licensed and actively maintained — cleared every
+   * other gate and was recommended for DIRECT_REUSE as a WebSocket transport.
+   *
+   * ADAPT is the honest verdict under uncertainty: it says lift the logic and reshape it,
+   * which is correct whether or not a dependable artifact turns out to exist.
+   */
+  if (kind === "mixed") {
+    return {
+      mode: "ADAPT",
+      reason:
+        "Library and application signals conflict, so it is unclear whether there is an artifact to depend on."
+        + `${input.reusability?.signals.length ? ` Classified from: ${input.reusability.signals.slice(0, 2).join("; ")}.` : ""}`,
+      guidance:
+        "Lift the core logic and reshape it to your architecture rather than adding a dependency. Call "
+        + "analyze_repository if you need to confirm whether it publishes a consumable artifact.",
+      factors,
+      obligations: license.obligations,
+      confidence: 0.6,
+    };
+  }
+
   // --- Gate 4: copyleft that is legal but consequential -------------------
   const copyleft = license.category === "strong-copyleft" || license.category === "network-copyleft";
   if (copyleft && distribution !== "open-source") {

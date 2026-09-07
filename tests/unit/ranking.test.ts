@@ -650,6 +650,87 @@ describe("deduplication (spec §19)", () => {
 
 // ---------------------------------------------------------------------------
 
+describe("excludeTerms separate implementing a protocol from observing it", () => {
+  /*
+   * Real metadata from skymansandy/wiretapKMP, which ranked FIRST for "WebSocket transport
+   * with reconnection". Every positive signal was correct: it genuinely declares the topics
+   * `websocket`, `websocket-inspector` and `okhttp`, so mustMention:["websocket"] passed and
+   * relevance scored 0.99. Nothing in the metadata could express that a tool which inspects
+   * WebSocket traffic is not a WebSocket client.
+   */
+  const wiretap = {
+    ref: refFromFullName("skymansandy/wiretapKMP"),
+    topics: [
+      "android", "api-mocking", "debugging-tool", "http-inspector", "interceptor",
+      "kotlin", "ktor", "network-inspector", "okhttp", "websocket", "websocket-inspector",
+    ],
+    description:
+      "Kotlin Multiplatform library for network inspection and mocking. Intercept HTTP and " +
+      "WebSocket traffic, mock API responses, and throttle requests.",
+    stars: 300, forks: 20, watchers: 10, openIssues: 2,
+    isFork: false, archived: false, language: "Kotlin",
+    pushedAt: new Date().toISOString(),
+  };
+
+  const wsTask = (excludeTerms?: string[]) => ({
+    featureId: "websocket", feature: "WebSocket transport with reconnection",
+    strategy: "reuse-library" as const, lookingFor: [], capabilities: ["websocket"],
+    requirementChecklist: [], searchQueries: ["websocket reconnect okhttp"],
+    rationale: "", budgetShare: 1, priority: 80, dependsOn: [],
+    mustMention: ["websocket"], excludeTerms,
+  });
+
+  it("demotes a tool that describes itself with an excluded term", () => {
+    const without = collectEvidence({
+      metadata: wiretap, task: wsTask(), sources: ["github:metadata"],
+    });
+    const with_ = collectEvidence({
+      metadata: wiretap, task: wsTask(["inspector", "mocking"]), sources: ["github:metadata"],
+    });
+    expect(without.axes.featureRelevance.value).toBeGreaterThan(0.4);
+    expect(with_.axes.featureRelevance.value).toBeLessThan(without.axes.featureRelevance.value * 0.3);
+    expect(with_.axes.featureRelevance.observation).toMatch(/which the feature excludes/i);
+  });
+
+  it("leaves a genuine WebSocket client untouched by the same exclusions", () => {
+    const client = {
+      ...wiretap,
+      ref: refFromFullName("VinsonGuo/ReconnectWebSocketWrapper"),
+      topics: ["websocket", "okhttp", "android", "reconnect"],
+      description: "A WebSocket wrapper with automatic reconnection for Android",
+    };
+    const e = collectEvidence({
+      metadata: client, task: wsTask(["inspector", "mocking"]), sources: ["github:metadata"],
+    });
+    expect(e.axes.featureRelevance.observation).not.toMatch(/excludes/i);
+    // Identical to the score it gets with no exclusions declared at all.
+    expect(e.axes.featureRelevance.value).toBe(
+      collectEvidence({ metadata: client, task: wsTask(), sources: ["github:metadata"] })
+        .axes.featureRelevance.value,
+    );
+  });
+
+  it("ignores an excluded term that appears only in the README", () => {
+    /*
+     * A real WebSocket client's README may well discuss debugging or interceptors. Only a
+     * repository that describes ITSELF as a debugging tool is one, so the exclusion is
+     * matched against name, description and topics — never the body.
+     */
+    const e = collectEvidence({
+      metadata: {
+        ...wiretap,
+        ref: refFromFullName("VinsonGuo/ReconnectWebSocketWrapper"),
+        topics: ["websocket", "okhttp", "android"],
+        description: "A WebSocket wrapper with automatic reconnection for Android",
+      },
+      relevanceText: "Add a logging interceptor for debugging your websocket connection.",
+      task: wsTask(["inspector", "interceptor", "debugging"]),
+      sources: ["github:metadata", "github:readme"],
+    });
+    expect(e.axes.featureRelevance.observation).not.toMatch(/excludes/i);
+  });
+});
+
 describe("named products are hard requirements", () => {
   const task = (over: Partial<{ feature: string; mustMention: string[] }> = {}) => ({
     featureId: "payments", feature: "Stripe payments and subscriptions",

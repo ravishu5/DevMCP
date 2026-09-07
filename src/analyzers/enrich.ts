@@ -214,6 +214,7 @@ function toTask(
     requirementChecklist: checklist,
     searchQueries,
     mustMention: feature.mustMention,
+    excludeTerms: feature.excludeTerms,
     rationale: cap
       ? `Identified by the calling agent; enriched with ${cap.label} vocabulary.`
       : "Identified by the calling agent. No matching capability in the vocabulary, so the agent's own terms are used — results may be less sharp, but the feature is not dropped.",
